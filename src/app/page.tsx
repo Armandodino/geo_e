@@ -12,7 +12,7 @@ import {
   BarChart3, 
   Database, 
   Globe2, 
-  Cube, 
+  Box, 
   FileJson, 
   Ruler,
   ArrowRight,
@@ -37,7 +37,7 @@ const staggerContainer = {
 
 const features = [
   {
-    icon: Cube,
+    icon: Box,
     title: 'Visualisation 3D',
     description: 'Visualisez vos nuages de points en 3D avec Potree. Support des formats LAS, LAZ avec outils de mesure avancés.',
   },

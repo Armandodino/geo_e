@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { 
-  Cube, 
+  Box, 
   Map, 
   FileImage, 
   Ruler, 
@@ -61,7 +61,7 @@ const recentFiles = [
     type: 'Nuage de points',
     size: '1.2 GB',
     date: 'Il y a 2 heures',
-    icon: Cube,
+    icon: Box,
   },
   {
     name: 'Limites_Communes.shp',
@@ -111,7 +111,7 @@ const quickActions = [
   {
     title: 'Visualiser en 3D',
     description: 'Ouvrir le visualiseur 3D',
-    icon: Cube,
+    icon: Box,
     href: '/dashboard/point-cloud',
     color: 'bg-primary',
   },

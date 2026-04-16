@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   LayoutDashboard,
-  Cube,
+  Box,
   Map,
   FileImage,
   Ruler,
@@ -28,7 +28,7 @@ const sidebarItems = [
   {
     title: 'Nuages de points 3D',
     href: '/dashboard/point-cloud',
-    icon: Cube,
+    icon: Box,
   },
   {
     title: 'Visualisation GIS',
