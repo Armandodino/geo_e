@@ -17,6 +17,9 @@ import {
   Square,
   Crosshair,
   AlertCircle,
+  Maximize,
+  Sun,
+  Moon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -266,7 +269,7 @@ export function PotreeViewerComponent({
   const [pointCount, setPointCount] = useState(0)
   const [isRealFile, setIsRealFile] = useState(false)
   const [measurementValue, setMeasurementValue] = useState<string | null>(null)
-  const [showHelpers, setShowHelpers] = useState(true)
+  const [viewerTheme, setViewerTheme] = useState<'dark' | 'light'>('dark')
 
   // Initialize Three.js scene
   useEffect(() => {
@@ -313,11 +316,9 @@ export function PotreeViewerComponent({
 
       const gridHelper = new THREE.GridHelper(100, 50, 0x444444, 0x333333)
       scene.add(gridHelper)
-      gridHelperRef.current = gridHelper
 
       const axesHelper = new THREE.AxesHelper(20)
       scene.add(axesHelper)
-      axesHelperRef.current = axesHelper
 
       const handleResize = () => {
         if (!containerRef.current) return
@@ -452,11 +453,14 @@ export function PotreeViewerComponent({
     }
   }, [pointSize])
 
-  // Toggle Helpers
+  // Update theme background
   useEffect(() => {
-    if (gridHelperRef.current) gridHelperRef.current.visible = showHelpers;
-    if (axesHelperRef.current) axesHelperRef.current.visible = showHelpers;
-  }, [showHelpers])
+    if (rendererRef.current && sceneRef.current) {
+      const color = viewerTheme === 'dark' ? 0x1a1a2e : 0xf8fafc
+      rendererRef.current.setClearColor(color, 1)
+      sceneRef.current.fog = new THREE.Fog(color, 50, 200)
+    }
+  }, [viewerTheme])
 
   // Camera controls
   const zoomIn = useCallback(() => {
@@ -475,6 +479,20 @@ export function PotreeViewerComponent({
     if (cameraRef.current && controlsRef.current) {
       controlsRef.current.reset()
       cameraRef.current.position.set(50, 50, 50)
+    }
+  }, [])
+
+  // Fullscreen support
+  const toggleFullscreen = useCallback(() => {
+    const el = containerRef.current?.parentElement
+    if (!el) return
+    
+    if (!document.fullscreenElement) {
+      el.requestFullscreen().catch(err => {
+        toast.error(`Erreur plein écran: ${err.message}`)
+      })
+    } else {
+      document.exitFullscreen()
     }
   }, [])
 
@@ -601,6 +619,13 @@ export function PotreeViewerComponent({
             <Button variant="ghost" size="icon" onClick={resetView} title="Réinitialiser" className="text-white hover:text-white hover:bg-white/20">
               <RotateCcw className="h-4 w-4" />
             </Button>
+            <div className="w-px bg-white/20 mx-1" />
+            <Button variant="ghost" size="icon" onClick={() => setViewerTheme(t => t === 'dark' ? 'light' : 'dark')} title="Thème du fond (Clair/Sombre)" className="text-white hover:text-white hover:bg-white/20">
+              {viewerTheme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
+            <Button variant="ghost" size="icon" onClick={toggleFullscreen} title="Visualiseur en Plein Écran" className="text-white hover:text-white hover:bg-white/20">
+              <Maximize className="h-4 w-4" />
+            </Button>
           </div>
         </Card>
 
@@ -639,18 +664,6 @@ export function PotreeViewerComponent({
                 className="w-20"
               />
               <span className="text-xs text-white w-6">{pointSize}</span>
-            </div>
-            
-            <div className="flex items-center gap-2 justify-between">
-               <span className="text-xs text-white">Repère 3D:</span>
-               <Button
-                  variant={showHelpers ? "default" : "ghost"}
-                  size="sm"
-                  className={showHelpers ? "h-6 text-[10px]" : "h-6 text-[10px] text-white hover:bg-white/20"}
-                  onClick={() => setShowHelpers(!showHelpers)}
-               >
-                  {showHelpers ? 'Affiché' : 'Masqué'}
-               </Button>
             </div>
           </div>
         </Card>
