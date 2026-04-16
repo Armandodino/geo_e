@@ -107,15 +107,7 @@ export default function LoginPage() {
                 </div>
               </div>
               <div className="space-y-2 text-left">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password" className="font-semibold">Mot de passe</Label>
-                  <Link 
-                    href="#" 
-                    className="text-xs text-primary hover:underline font-medium"
-                  >
-                    Mot de passe oublié ?
-                  </Link>
-                </div>
+                <Label htmlFor="password" className="font-semibold">Mot de passe</Label>
                 <div className="relative group">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
                   <Input
@@ -127,6 +119,14 @@ export default function LoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                   />
+                </div>
+                <div className="flex justify-end pt-1">
+                  <Link 
+                    href="#" 
+                    className="text-xs text-primary hover:underline font-medium"
+                  >
+                    Mot de passe oublié ?
+                  </Link>
                 </div>
               </div>
               
