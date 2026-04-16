@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
+import { ThemeProvider } from "@/components/theme-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,24 +15,24 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Geo E - Application Géographique",
-  description: "Application géographique moderne avec Next.js, TypeScript et Tailwind CSS",
-  keywords: ["Geo E", "Géographie", "Next.js", "TypeScript", "Tailwind CSS", "React"],
+  title: "Geo E - Plateforme Géospatiale",
+  description: "Plateforme géospatiale avancée pour la Côte d'Ivoire. Visualisation 3D, analyse spatiale et gestion de données GIS.",
+  keywords: ["Geo E", "Géospatial", "Côte d'Ivoire", "GIS", "3D", "Point Cloud", "Cartographie"],
   authors: [{ name: "Geo E Team" }],
   icons: {
     icon: "/favicon.ico",
   },
   openGraph: {
-    title: "Geo E",
-    description: "Application géographique moderne",
-    url: "https://geo-e.app",
+    title: "Geo E - Plateforme Géospatiale",
+    description: "Plateforme géospatiale avancée pour la Côte d'Ivoire",
+    url: "https://geo-e.ci",
     siteName: "Geo E",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Geo E",
-    description: "Application géographique moderne",
+    title: "Geo E - Plateforme Géospatiale",
+    description: "Plateforme géospatiale avancée pour la Côte d'Ivoire",
   },
 };
 
@@ -41,12 +42,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="fr" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
-        {children}
-        <Toaster />
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          {children}
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );
