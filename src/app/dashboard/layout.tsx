@@ -1,30 +1,9 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AppSidebar } from '@/components/app-sidebar'
 import { AppHeader } from '@/components/app-header'
-
-function useAuth() {
-  const [state, setState] = useState(() => {
-    // Only run on client
-    if (typeof window === 'undefined') {
-      return { isLoading: true, isAuthenticated: false }
-    }
-    const user = localStorage.getItem('geo_e_user')
-    return { 
-      isLoading: false, 
-      isAuthenticated: !!user 
-    }
-  })
-
-  const checkAuth = useCallback(() => {
-    const user = localStorage.getItem('geo_e_user')
-    setState({ isLoading: false, isAuthenticated: !!user })
-  }, [])
-
-  return { ...state, checkAuth }
-}
 
 export default function DashboardLayout({
   children,
@@ -32,24 +11,39 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
-  const { isLoading, isAuthenticated } = useAuth()
+  const [isLoading, setIsLoading] = useState(true)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
 
-  // Redirect if not authenticated
-  if (!isLoading && !isAuthenticated) {
-    router.push('/login')
-    return null
-  }
+  useEffect(() => {
+    // Check authentication on client side only
+    const user = localStorage.getItem('geo_e_user')
+    if (!user) {
+      router.push('/login')
+    } else {
+      setIsAuthenticated(true)
+    }
+    setIsLoading(false)
+  }, [router])
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary"></div>
+          <p className="text-muted-foreground">Chargement...</p>
+        </div>
       </div>
     )
   }
 
   if (!isAuthenticated) {
-    return null
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <p className="text-muted-foreground">Redirection vers la connexion...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

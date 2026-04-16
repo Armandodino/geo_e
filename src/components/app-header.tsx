@@ -1,8 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,22 +14,27 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Search, Bell, User, Settings, LogOut, Folder } from 'lucide-react'
 
 export function AppHeader() {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState('')
-  
-  // Get user from localStorage
-  let user = null
-  if (typeof window !== 'undefined') {
+  const [user, setUser] = useState<{ name?: string; email?: string } | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
     const stored = localStorage.getItem('geo_e_user')
     if (stored) {
-      user = JSON.parse(stored)
+      try {
+        setUser(JSON.parse(stored))
+      } catch {
+        setUser(null)
+      }
     }
-  }
+  }, [])
 
   const handleLogout = () => {
     localStorage.removeItem('geo_e_user')
@@ -99,9 +103,8 @@ export function AppHeader() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-9 w-9 rounded-full">
                 <Avatar className="h-9 w-9">
-                  <AvatarImage src="" alt={user?.name || 'User'} />
                   <AvatarFallback className="bg-primary text-primary-foreground">
-                    {user?.name?.[0]?.toUpperCase() || 'U'}
+                    {mounted && user?.name ? user.name[0].toUpperCase() : 'U'}
                   </AvatarFallback>
                 </Avatar>
               </Button>
@@ -109,8 +112,8 @@ export function AppHeader() {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium">{user?.name || 'Utilisateur'}</p>
-                  <p className="text-xs text-muted-foreground">{user?.email || 'user@example.com'}</p>
+                  <p className="text-sm font-medium">{mounted && user?.name ? user.name : 'Utilisateur'}</p>
+                  <p className="text-xs text-muted-foreground">{mounted && user?.email ? user.email : 'user@example.com'}</p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
