@@ -38,8 +38,9 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { FileUpload } from '@/components/file-upload'
-import { useFileStore, formatFileSize, type GeoFile } from '@/lib/file-store'
+import { useFileStore, formatFileSize, formatAnalysisSummary, type GeoFile, type FileAnalysis } from '@/lib/file-store'
 import { toast } from 'sonner'
+import { BarChart3, MapPin, Ruler, Box, Layers } from 'lucide-react'
 
 // File type icons and colors
 const getFileIcon = (type: string) => {
@@ -608,6 +609,11 @@ export default function MediaPage() {
                                 {file.type}
                               </Badge>
                             </div>
+                            {file.analysis && file.analysis.status === 'completed' && (
+                              <p className="text-xs text-primary mt-1 truncate">
+                                {formatAnalysisSummary(file.analysis)}
+                              </p>
+                            )}
                           </CardContent>
                         </Card>
                       )
@@ -627,7 +633,15 @@ export default function MediaPage() {
                           <Icon className={`h-8 w-8 ${color}`} />
                           <div className="flex-1 min-w-0">
                             <p className="font-medium truncate">{file.name}</p>
-                            <p className="text-sm text-muted-foreground">{file.createdAt.toLocaleDateString()}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm text-muted-foreground">{file.createdAt.toLocaleDateString()}</p>
+                              {file.analysis && file.analysis.status === 'completed' && (
+                                <>
+                                  <span className="text-xs text-muted-foreground">•</span>
+                                  <p className="text-xs text-primary">{formatAnalysisSummary(file.analysis)}</p>
+                                </>
+                              )}
+                            </div>
                           </div>
                           <Badge variant="secondary" className="uppercase">{file.type}</Badge>
                           <span className="text-sm text-muted-foreground">{formatFileSize(file.size)}</span>
@@ -697,6 +711,158 @@ export default function MediaPage() {
                       {selectedFile.metadata.pages && (
                         <p>Pages: {selectedFile.metadata.pages}</p>
                       )}
+                    </div>
+                  )}
+
+                  {/* Analysis Results */}
+                  {selectedFile.analysis && selectedFile.analysis.status === 'completed' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                        <BarChart3 className="h-4 w-4" />
+                        Analyse automatique
+                      </div>
+                      
+                      <div className="bg-primary/5 rounded-lg p-3 space-y-2 text-sm">
+                        {/* Bounding Box */}
+                        {selectedFile.analysis.boundingBox && (
+                          <div className="flex items-start gap-2">
+                            <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
+                            <div>
+                              <p className="font-medium">Zone géographique</p>
+                              <p className="text-xs text-muted-foreground">
+                                {selectedFile.analysis.boundingBox.minLat.toFixed(4)}° à {selectedFile.analysis.boundingBox.maxLat.toFixed(4)}° N
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {selectedFile.analysis.boundingBox.minLng.toFixed(4)}° à {selectedFile.analysis.boundingBox.maxLng.toFixed(4)}° E
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Geometry */}
+                        {selectedFile.analysis.geometry && (
+                          <div className="flex items-start gap-2">
+                            <Layers className="h-4 w-4 text-muted-foreground mt-0.5" />
+                            <div>
+                              <p className="font-medium">{selectedFile.analysis.geometry.type}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {selectedFile.analysis.geometry.featureCount} élément{selectedFile.analysis.geometry.featureCount > 1 ? 's' : ''}
+                              </p>
+                              {selectedFile.analysis.geometry.totalArea && (
+                                <p className="text-xs text-muted-foreground">
+                                  Surface: {(selectedFile.analysis.geometry.totalArea / 10000).toFixed(2)} ha
+                                </p>
+                              )}
+                              {selectedFile.analysis.geometry.centroid && (
+                                <p className="text-xs text-muted-foreground">
+                                  Centre: {selectedFile.analysis.geometry.centroid.lat.toFixed(6)}, {selectedFile.analysis.geometry.centroid.lng.toFixed(6)}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Point Cloud */}
+                        {selectedFile.analysis.pointCloud && (
+                          <div className="flex items-start gap-2">
+                            <Box className="h-4 w-4 text-muted-foreground mt-0.5" />
+                            <div>
+                              <p className="font-medium">Nuage de points</p>
+                              <p className="text-xs text-muted-foreground">
+                                {selectedFile.analysis.pointCloud.pointCount.toLocaleString()} points
+                              </p>
+                              {selectedFile.analysis.pointCloud.elevationRange && (
+                                <p className="text-xs text-muted-foreground">
+                                  Élévation: {selectedFile.analysis.pointCloud.elevationRange.min.toFixed(1)}m - {selectedFile.analysis.pointCloud.elevationRange.max.toFixed(1)}m
+                                </p>
+                              )}
+                              {selectedFile.analysis.pointCloud.avgDensity && (
+                                <p className="text-xs text-muted-foreground">
+                                  Densité: {selectedFile.analysis.pointCloud.avgDensity.toFixed(2)} pts/m²
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Image */}
+                        {selectedFile.analysis.image && (
+                          <div className="flex items-start gap-2">
+                            <Image className="h-4 w-4 text-muted-foreground mt-0.5" />
+                            <div>
+                              <p className="font-medium">Image</p>
+                              <p className="text-xs text-muted-foreground">
+                                {selectedFile.analysis.image.width} × {selectedFile.analysis.image.height} px
+                              </p>
+                              {selectedFile.analysis.image.hasGps && (
+                                <p className="text-xs text-green-600">Données GPS détectées</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Video */}
+                        {selectedFile.analysis.video && (
+                          <div className="flex items-start gap-2">
+                            <Video className="h-4 w-4 text-muted-foreground mt-0.5" />
+                            <div>
+                              <p className="font-medium">Vidéo</p>
+                              <p className="text-xs text-muted-foreground">
+                                Durée: {Math.floor(selectedFile.analysis.video.duration / 60)}:{Math.floor(selectedFile.analysis.video.duration % 60).toString().padStart(2, '0')}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Résolution: {selectedFile.analysis.video.width} × {selectedFile.analysis.video.height}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Document */}
+                        {selectedFile.analysis.document && (
+                          <div className="flex items-start gap-2">
+                            <FileText className="h-4 w-4 text-muted-foreground mt-0.5" />
+                            <div>
+                              <p className="font-medium">Document</p>
+                              <p className="text-xs text-muted-foreground">
+                                {selectedFile.analysis.document.pages} page{selectedFile.analysis.document.pages > 1 ? 's' : ''}
+                              </p>
+                              {selectedFile.analysis.document.hasGeospatial && (
+                                <p className="text-xs text-green-600">Contenu géospatial détecté</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Calculations */}
+                        {selectedFile.analysis.calculations && (
+                          <div className="flex items-start gap-2">
+                            <Ruler className="h-4 w-4 text-muted-foreground mt-0.5" />
+                            <div>
+                              <p className="font-medium">Calculs</p>
+                              {selectedFile.analysis.calculations.totalArea && (
+                                <p className="text-xs text-muted-foreground">
+                                  Surface: {(selectedFile.analysis.calculations.totalArea / 10000).toFixed(2)} ha
+                                </p>
+                              )}
+                              {selectedFile.analysis.calculations.totalDistance && (
+                                <p className="text-xs text-muted-foreground">
+                                  Distance: {(selectedFile.analysis.calculations.totalDistance / 1000).toFixed(2)} km
+                                </p>
+                              )}
+                              {selectedFile.analysis.calculations.pointDensity && (
+                                <p className="text-xs text-muted-foreground">
+                                  Densité: {selectedFile.analysis.calculations.pointDensity.toFixed(2)} pts/m²
+                                </p>
+                              )}
+                              {selectedFile.analysis.calculations.coverageArea && (
+                                <p className="text-xs text-muted-foreground">
+                                  Couverture: {(selectedFile.analysis.calculations.coverageArea / 10000).toFixed(2)} ha
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

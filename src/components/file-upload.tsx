@@ -5,6 +5,7 @@ import { useDropzone } from 'react-dropzone'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { Badge } from '@/components/ui/badge'
 import { 
   Upload, 
   File, 
@@ -14,16 +15,22 @@ import {
   Map, 
   X,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Loader2,
+  BarChart3,
+  Eye
 } from 'lucide-react'
-import { useFileStore, detectFileType, formatFileSize, type FileType, type GeoFile } from '@/lib/file-store'
+import { useFileStore, detectFileType, formatFileSize, formatAnalysisSummary, type FileType, type GeoFile, type FileAnalysis } from '@/lib/file-store'
+import { analyzeFile } from '@/lib/file-analyzer'
 import { toast } from 'sonner'
 
 interface FileUploadProps {
   acceptedTypes?: FileType[]
   onFileUpload?: (file: GeoFile) => void
+  onAnalysisComplete?: (file: GeoFile, analysis: FileAnalysis) => void
   multiple?: boolean
   maxSize?: number // in bytes
+  autoAnalyze?: boolean
   className?: string
 }
 
@@ -55,21 +62,39 @@ const fileTypeAccept: Record<FileType, string[]> = {
   unknown: [],
 }
 
+const fileTypeLabels: Record<FileType, string> = {
+  geojson: 'GeoJSON',
+  kml: 'KML',
+  shp: 'Shapefile',
+  las: 'LAS',
+  laz: 'LAZ',
+  pdf: 'PDF',
+  image: 'Image',
+  video: 'Vidéo',
+  geotiff: 'GeoTIFF',
+  gpx: 'GPX',
+  unknown: 'Fichier',
+}
+
 export function FileUpload({
   acceptedTypes,
   onFileUpload,
+  onAnalysisComplete,
   multiple = true,
   maxSize = 500 * 1024 * 1024, // 500MB default
+  autoAnalyze = true,
   className = '',
 }: FileUploadProps) {
   const [uploadingFiles, setUploadingFiles] = useState<Array<{
     name: string
     progress: number
-    status: 'uploading' | 'success' | 'error'
+    status: 'uploading' | 'analyzing' | 'success' | 'error'
     error?: string
+    analysisSummary?: string
   }>>([])
   
   const addFile = useFileStore((state) => state.addFile)
+  const updateFileAnalysis = useFileStore((state) => state.updateFileAnalysis)
 
   const getAcceptedExtensions = useCallback(() => {
     if (!acceptedTypes) return undefined
@@ -84,7 +109,7 @@ export function FileUpload({
     let data: unknown = null
     let metadata: GeoFile['metadata'] = {}
 
-    if (fileType === 'geojson' || fileType === 'kml' || fileType === 'gpx') {
+    if (fileType === 'geojson' || fileType === 'gpx') {
       // Read as text for geospatial formats
       const text = await file.text()
       try {
@@ -92,6 +117,10 @@ export function FileUpload({
       } catch {
         data = text
       }
+    } else if (fileType === 'kml') {
+      // Read as text for KML
+      const text = await file.text()
+      data = text
     } else if (fileType === 'image') {
       // Get image dimensions
       const img = new window.Image()
@@ -106,6 +135,9 @@ export function FileUpload({
     } else if (fileType === 'pdf') {
       // Get page count (would need pdf.js for real implementation)
       metadata = { pages: 1 }
+    } else if (fileType === 'las' || fileType === 'laz') {
+      // Point cloud files
+      metadata = { points: 0 }
     }
 
     return {
@@ -115,6 +147,64 @@ export function FileUpload({
       data,
       url: dataUrl,
       metadata,
+    }
+  }
+
+  const performAnalysis = async (file: globalThis.File, geoFile: GeoFile, index: number): Promise<void> => {
+    try {
+      const analysisResult = await analyzeFile(
+        file,
+        geoFile.type,
+        geoFile.data,
+        geoFile.url
+      )
+      
+      const analysis: FileAnalysis = {
+        ...analysisResult,
+        status: 'completed',
+        analyzedAt: new Date()
+      }
+      
+      // Update file with analysis results
+      updateFileAnalysis(geoFile.id, analysis)
+      
+      // Update UI
+      setUploadingFiles((prev) =>
+        prev.map((f, idx) =>
+          idx === index ? { 
+            ...f, 
+            status: 'success',
+            analysisSummary: formatAnalysisSummary(analysis)
+          } : f
+        )
+      )
+      
+      // Callback
+      if (onAnalysisComplete) {
+        onAnalysisComplete({ ...geoFile, analysis }, analysis)
+      }
+      
+      // Show success toast with analysis summary
+      const summary = formatAnalysisSummary(analysis)
+      if (summary && summary !== 'Analyse terminée') {
+        toast.success(`Analyse: ${summary}`)
+      }
+      
+    } catch (error) {
+      updateFileAnalysis(geoFile.id, {
+        status: 'error',
+        error: String(error)
+      })
+      
+      setUploadingFiles((prev) =>
+        prev.map((f, idx) =>
+          idx === index ? { 
+            ...f, 
+            status: 'success',
+            analysisSummary: 'Analyse non disponible'
+          } : f
+        )
+      )
     }
   }
 
@@ -130,7 +220,7 @@ export function FileUpload({
       const file = acceptedFiles[i]
       
       try {
-        // Simulate progress
+        // Simulate progress for upload phase
         setUploadingFiles((prev) =>
           prev.map((f, idx) =>
             idx === i ? { ...f, progress: 50 } : f
@@ -139,18 +229,31 @@ export function FileUpload({
 
         const geoFile = await processFile(file)
         const id = addFile(geoFile)
+        geoFile.id = id
 
-        setUploadingFiles((prev) =>
-          prev.map((f, idx) =>
-            idx === i ? { ...f, progress: 100, status: 'success' } : f
+        // Update to analyzing phase
+        if (autoAnalyze) {
+          setUploadingFiles((prev) =>
+            prev.map((f, idx) =>
+              idx === i ? { ...f, progress: 75, status: 'analyzing' } : f
+            )
           )
-        )
+          
+          // Perform automatic analysis
+          await performAnalysis(file, geoFile, i)
+        } else {
+          setUploadingFiles((prev) =>
+            prev.map((f, idx) =>
+              idx === i ? { ...f, progress: 100, status: 'success' } : f
+            )
+          )
+        }
 
         if (onFileUpload) {
           onFileUpload({ ...geoFile, id })
         }
 
-        toast.success(`Fichier "${file.name}" importé avec succès`)
+        toast.success(`"${file.name}" importé avec succès`)
       } catch (error) {
         setUploadingFiles((prev) =>
           prev.map((f, idx) =>
@@ -166,8 +269,8 @@ export function FileUpload({
     // Clear uploading files after a delay
     setTimeout(() => {
       setUploadingFiles([])
-    }, 3000)
-  }, [addFile, onFileUpload])
+    }, 5000)
+  }, [addFile, onFileUpload, onAnalysisComplete, autoAnalyze, updateFileAnalysis])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -181,6 +284,26 @@ export function FileUpload({
 
   const removeUploadingFile = (index: number) => {
     setUploadingFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const getStatusBadge = (status: string, progress: number) => {
+    switch (status) {
+      case 'uploading':
+        return <Badge variant="secondary">{progress}%</Badge>
+      case 'analyzing':
+        return (
+          <Badge variant="default" className="bg-blue-500">
+            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+            Analyse
+          </Badge>
+        )
+      case 'success':
+        return <Badge variant="default" className="bg-green-500">Terminé</Badge>
+      case 'error':
+        return <Badge variant="destructive">Erreur</Badge>
+      default:
+        return null
+    }
   }
 
   return (
@@ -214,8 +337,22 @@ export function FileUpload({
               ou cliquez pour sélectionner
             </p>
           </div>
+          <div className="flex flex-wrap gap-2 justify-center">
+            {acceptedTypes ? (
+              acceptedTypes.map((type) => (
+                <Badge key={type} variant="outline" className="text-xs">
+                  {fileTypeLabels[type]}
+                </Badge>
+              ))
+            ) : (
+              <Badge variant="outline" className="text-xs">
+                Tous formats supportés
+              </Badge>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground">
             Taille maximale: {formatFileSize(maxSize)}
+            {autoAnalyze && ' • Analyse automatique activée'}
           </p>
         </div>
       </div>
@@ -231,26 +368,45 @@ export function FileUpload({
                   <div className="flex items-center gap-3">
                     <Icon className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium truncate">{file.name}</p>
-                        {file.status === 'uploading' && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => removeUploadingFile(index)}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {file.status === 'success' && (
-                          <CheckCircle className="h-5 w-5 text-green-500" />
-                        )}
-                        {file.status === 'error' && (
-                          <AlertCircle className="h-5 w-5 text-destructive" />
-                        )}
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <p className="text-sm font-medium truncate">{file.name}</p>
+                          {getStatusBadge(file.status, file.progress)}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {file.status === 'success' && (
+                            <>
+                              {file.analysisSummary && (
+                                <Badge variant="outline" className="text-xs gap-1">
+                                  <BarChart3 className="h-3 w-3" />
+                                  {file.analysisSummary}
+                                </Badge>
+                              )}
+                              <CheckCircle className="h-5 w-5 text-green-500" />
+                            </>
+                          )}
+                          {file.status === 'error' && (
+                            <AlertCircle className="h-5 w-5 text-destructive" />
+                          )}
+                          {(file.status === 'uploading' || file.status === 'analyzing') && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => removeUploadingFile(index)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                      {file.status === 'uploading' && (
+                      {file.status === 'analyzing' && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Analyse des données géospatiales en cours...
+                        </div>
+                      )}
+                      {(file.status === 'uploading') && (
                         <Progress value={file.progress} className="h-1 mt-2" />
                       )}
                       {file.status === 'error' && file.error && (

@@ -3,6 +3,83 @@ import { v4 as uuidv4 } from 'uuid'
 
 export type FileType = 'geojson' | 'kml' | 'shp' | 'las' | 'laz' | 'pdf' | 'image' | 'video' | 'geotiff' | 'gpx' | 'unknown'
 
+export interface FileAnalysis {
+  // Bounding box
+  boundingBox?: {
+    minLat: number
+    maxLat: number
+    minLng: number
+    maxLng: number
+  }
+  
+  // Coordinate system
+  coordinateSystem?: {
+    name: string
+    epsg?: number
+  }
+  
+  // Geometry info
+  geometry?: {
+    type: string
+    featureCount: number
+    totalArea?: number
+    totalPerimeter?: number
+    centroid?: { lat: number; lng: number }
+  }
+  
+  // Point cloud specific
+  pointCloud?: {
+    pointCount: number
+    avgDensity?: number
+    elevationRange?: { min: number; max: number }
+  }
+  
+  // Raster specific
+  raster?: {
+    width: number
+    height: number
+    resolution?: number
+    bands: number
+  }
+  
+  // Image specific
+  image?: {
+    width: number
+    height: number
+    hasGps: boolean
+    gpsCoordinates?: { lat: number; lng: number }
+  }
+  
+  // PDF specific
+  document?: {
+    pages: number
+    hasGeospatial: boolean
+  }
+  
+  // Video specific
+  video?: {
+    duration: number
+    width: number
+    height: number
+    fps: number
+    hasGpsTrack: boolean
+  }
+  
+  // Automatic calculations
+  calculations?: {
+    totalArea?: number
+    totalDistance?: number
+    estimatedVolume?: number
+    pointDensity?: number
+    coverageArea?: number
+  }
+  
+  // Status
+  status: 'pending' | 'analyzing' | 'completed' | 'error'
+  error?: string
+  analyzedAt?: Date
+}
+
 export interface GeoFile {
   id: string
   name: string
@@ -21,6 +98,7 @@ export interface GeoFile {
     features?: number
     points?: number
   }
+  analysis?: FileAnalysis
   createdAt: Date
   updatedAt: Date
 }
@@ -34,10 +112,13 @@ export interface FileStore {
   // Actions
   addFile: (file: Omit<GeoFile, 'id' | 'createdAt' | 'updatedAt'>) => string
   updateFile: (id: string, updates: Partial<GeoFile>) => void
+  updateFileAnalysis: (id: string, analysis: FileAnalysis) => void
   removeFile: (id: string) => void
   selectFile: (id: string | null) => void
   getFile: (id: string) => GeoFile | undefined
   getFilesByType: (type: FileType) => GeoFile[]
+  getRecentFiles: (limit?: number) => GeoFile[]
+  getAnalyzedFiles: () => GeoFile[]
   clearAll: () => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
@@ -57,6 +138,9 @@ export const useFileStore = create<FileStore>((set, get) => ({
       id,
       createdAt: now,
       updatedAt: now,
+      analysis: {
+        status: 'pending'
+      }
     }
     set((state) => ({ files: [...state.files, newFile] }))
     return id
@@ -67,6 +151,20 @@ export const useFileStore = create<FileStore>((set, get) => ({
       files: state.files.map((file) =>
         file.id === id
           ? { ...file, ...updates, updatedAt: new Date() }
+          : file
+      ),
+    }))
+  },
+
+  updateFileAnalysis: (id, analysis) => {
+    set((state) => ({
+      files: state.files.map((file) =>
+        file.id === id
+          ? { 
+              ...file, 
+              analysis: { ...file.analysis, ...analysis },
+              updatedAt: new Date() 
+            }
           : file
       ),
     }))
@@ -89,6 +187,16 @@ export const useFileStore = create<FileStore>((set, get) => ({
 
   getFilesByType: (type) => {
     return get().files.filter((file) => file.type === type)
+  },
+
+  getRecentFiles: (limit = 10) => {
+    return [...get().files]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit)
+  },
+
+  getAnalyzedFiles: () => {
+    return get().files.filter((file) => file.analysis?.status === 'completed')
   },
 
   clearAll: () => {
@@ -156,4 +264,46 @@ export function formatFileSize(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+// Helper to format analysis summary
+export function formatAnalysisSummary(analysis: FileAnalysis | undefined): string {
+  if (!analysis || analysis.status !== 'completed') {
+    return 'En attente d\'analyse...'
+  }
+  
+  const parts: string[] = []
+  
+  if (analysis.geometry?.featureCount) {
+    parts.push(`${analysis.geometry.featureCount} éléments`)
+  }
+  
+  if (analysis.pointCloud?.pointCount) {
+    parts.push(`${analysis.pointCloud.pointCount.toLocaleString()} points`)
+  }
+  
+  if (analysis.calculations?.totalArea) {
+    const area = analysis.calculations.totalArea
+    if (area > 10000) {
+      parts.push(`${(area / 10000).toFixed(2)} ha`)
+    } else {
+      parts.push(`${area.toFixed(0)} m²`)
+    }
+  }
+  
+  if (analysis.image) {
+    parts.push(`${analysis.image.width}×${analysis.image.height}px`)
+  }
+  
+  if (analysis.video) {
+    const mins = Math.floor(analysis.video.duration / 60)
+    const secs = Math.floor(analysis.video.duration % 60)
+    parts.push(`${mins}:${secs.toString().padStart(2, '0')}`)
+  }
+  
+  if (analysis.document?.pages) {
+    parts.push(`${analysis.document.pages} pages`)
+  }
+  
+  return parts.length > 0 ? parts.join(' • ') : 'Analyse terminée'
 }
