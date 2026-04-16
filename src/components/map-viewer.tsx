@@ -4,683 +4,504 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import {
+  Map as MapIcon,
+  Satellite,
+  Mountain,
+  Layers,
+  MapPin,
+  Pencil,
+  Square,
+  Circle,
+  Trash2,
+  Download,
+  Upload,
   ZoomIn,
   ZoomOut,
   Locate,
-  Layers,
   Ruler,
-  Download,
-  Trash2,
+  Search,
+  Loader2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-// Dynamic import for Leaflet to avoid SSR issues
-let L: typeof import('leaflet') | null = null
-let GeoRasterLayer: any = null
-
-if (typeof window !== 'undefined') {
-  import('leaflet').then((leaflet) => {
-    L = leaflet.default
-  })
-  import('georaster-layer-for-leaflet').then((module) => {
-    GeoRasterLayer = module.default || module
-  })
-}
-
-export interface MapPoint {
-  lat: number
-  lng: number
-  id?: string
-  label?: string
-}
-
-export interface MapFeature {
-  id: string
-  type: 'point' | 'line' | 'polygon' | 'circle' | 'rectangle'
-  coordinates: MapPoint[]
-  properties?: Record<string, unknown>
-  layer?: L.Layer
-}
-
-export interface MapLayer {
-  id: string
-  name: string
-  type: 'tile' | 'geojson' | 'wms' | 'geotiff'
-  url?: string
-  visible: boolean
-  opacity: number
-  layer?: L.Layer
-}
-
 interface MapViewerProps {
-  center?: [number, number]
-  zoom?: number
-  onMapClick?: (latlng: { lat: number; lng: number }) => void
-  onDraw?: (feature: MapFeature) => void
-  onFeatureSelect?: (feature: MapFeature | null) => void
   className?: string
-  height?: string
-  drawingMode?: 'point' | 'line' | 'polygon' | 'rectangle' | 'circle' | null
-  features?: MapFeature[]
-  layers?: MapLayer[]
 }
 
-// Base tile layers
-const baseLayers: Record<string, { url: string; attribution: string; name: string }> = {
-  osm: {
-    name: 'OpenStreetMap',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  },
-  satellite: {
+// Map tile providers
+const TILE_PROVIDERS = [
+  {
+    id: 'google-satellite',
     name: 'Satellite',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: '© Esri',
+    icon: Satellite,
+    url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+    attribution: '© Google Maps',
   },
-  terrain: {
+  {
+    id: 'google-hybrid',
+    name: 'Hybride',
+    icon: Layers,
+    url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+    attribution: '© Google Maps',
+  },
+  {
+    id: 'google-terrain',
     name: 'Terrain',
-    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-    attribution: '© <a href="https://opentopomap.org">OpenTopoMap</a>',
+    icon: Mountain,
+    url: 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+    attribution: '© Google Maps',
   },
-  dark: {
-    name: 'Dark',
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution: '© <a href="https://carto.com/">CARTO</a>',
+  {
+    id: 'google-streets',
+    name: 'Plan',
+    icon: MapIcon,
+    url: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+    attribution: '© Google Maps',
   },
-}
+]
 
-export function MapViewer({
-  center = [5.3599, -4.0083], // Abidjan coordinates
-  zoom = 12,
-  onMapClick,
-  onDraw,
-  onFeatureSelect,
-  className = '',
-  height = '100%',
-  drawingMode = null,
-  features = [],
-  layers = [],
-}: MapViewerProps) {
-  const mapRef = useRef<HTMLDivElement>(null)
-  const mapInstanceRef = useRef<L.Map | null>(null)
+// Côte d'Ivoire cities
+const CITIES = [
+  { name: 'Abidjan', lat: 5.3599, lng: -4.0083 },
+  { name: 'Yamoussoukro', lat: 6.8276, lng: -5.2893 },
+  { name: 'Bouaké', lat: 7.6892, lng: -5.0309 },
+  { name: 'San-Pédro', lat: 4.7453, lng: -6.6389 },
+  { name: 'Korhogo', lat: 9.4581, lng: -5.6294 },
+]
+
+export function MapViewerComponent({ className = '' }: MapViewerProps) {
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<L.Map | null>(null)
+  const tileLayerRef = useRef<L.TileLayer | null>(null)
   const drawnItemsRef = useRef<L.FeatureGroup | null>(null)
-  const baseLayersRef = useRef<Map<string, L.TileLayer>>(new Map())
-  const currentBaseLayerRef = useRef<string>('osm')
-  const [isMapReady, setIsMapReady] = useState(false)
-  const [currentZoom, setCurrentZoom] = useState(zoom)
-  const [currentCenter, setCurrentCenter] = useState(center)
-  const [activeBaseLayer, setActiveBaseLayer] = useState('osm')
-  const [showLayerPanel, setShowLayerPanel] = useState(false)
-  const drawingPointsRef = useRef<MapPoint[]>([])
-  const tempLayerRef = useRef<L.Layer | null>(null)
+  
+  const [isLoaded, setIsLoaded] = useState(false)
+  const [activeLayer, setActiveLayer] = useState('google-satellite')
+  const [drawingMode, setDrawingMode] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [measurements, setMeasurements] = useState<Array<{ type: string; value: string }>>([])
+  const [coords, setCoords] = useState({ lat: 5.36, lng: -4.01 })
+  const [zoom, setZoom] = useState(12)
+
+  // Load Leaflet dynamically
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const loadLeaflet = async () => {
+      // Load CSS
+      const link = document.createElement('link')
+      link.rel = 'stylesheet'
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+      document.head.appendChild(link)
+
+      // Load JS
+      const script = document.createElement('script')
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+      script.async = true
+      
+      await new Promise((resolve) => {
+        script.onload = resolve
+        document.head.appendChild(script)
+      })
+
+      setIsLoaded(true)
+    }
+
+    loadLeaflet()
+  }, [])
 
   // Initialize map
   useEffect(() => {
-    if (!mapRef.current || !L) return
+    if (!isLoaded || !mapContainerRef.current || mapRef.current) return
 
-    // Import Leaflet CSS
-    import('leaflet/dist/leaflet.css')
-
-    // Fix default marker icon
-    delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl
-    L.Icon.Default.mergeOptions({
-      iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-      iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-    })
+    const L = (window as any).L
+    if (!L) return
 
     // Create map
-    const map = L.map(mapRef.current, {
-      center,
-      zoom,
+    const map = L.map(mapContainerRef.current, {
+      center: [5.3599, -4.0083],
+      zoom: 12,
       zoomControl: false,
     })
 
-    // Create feature group for drawn items
+    // Add tile layer
+    const tileLayer = L.tileLayer(TILE_PROVIDERS[0].url, {
+      attribution: TILE_PROVIDERS[0].attribution,
+      maxZoom: 20,
+    })
+    tileLayer.addTo(map)
+    tileLayerRef.current = tileLayer
+
+    // Add feature group for drawings
     const drawnItems = L.featureGroup()
     drawnItems.addTo(map)
     drawnItemsRef.current = drawnItems
 
-    // Add base layers
-    Object.entries(baseLayers).forEach(([key, layer]) => {
-      const tileLayer = L.tileLayer(layer.url, {
-        attribution: layer.attribution,
-      })
-      baseLayersRef.current.set(key, tileLayer)
-      if (key === 'osm') {
-        tileLayer.addTo(map)
-      }
+    // Track coordinates
+    map.on('move', () => {
+      const center = map.getCenter()
+      setCoords({ lat: center.lat, lng: center.lng })
     })
-
-    // Event handlers
     map.on('zoomend', () => {
-      const center = map.getCenter()
-      setCurrentZoom(map.getZoom())
-      setCurrentCenter([center.lat, center.lng])
+      setZoom(map.getZoom())
     })
 
-    map.on('moveend', () => {
-      const center = map.getCenter()
-      setCurrentCenter([center.lat, center.lng])
-    })
-
-    map.on('click', (e: L.LeafletMouseEvent) => {
-      const latlng = { lat: e.latlng.lat, lng: e.latlng.lng }
-      onMapClick?.(latlng)
-
-      // Handle drawing
-      if (drawingMode) {
-        handleDrawingClick(latlng)
-      }
-    })
-
-    mapInstanceRef.current = map
-    setIsMapReady(true)
+    mapRef.current = map
 
     return () => {
       map.remove()
-      mapInstanceRef.current = null
+      mapRef.current = null
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [isLoaded])
 
-  // Handle drawing click
-  const handleDrawingClick = useCallback((latlng: { lat: number; lng: number }) => {
-    const map = mapInstanceRef.current
-    if (!map || !L || !drawingMode) return
+  // Change tile layer
+  const changeTileLayer = useCallback((layerId: string) => {
+    const L = (window as any).L
+    if (!L || !mapRef.current || !tileLayerRef.current) return
 
-    drawingPointsRef.current.push(latlng)
+    const provider = TILE_PROVIDERS.find(p => p.id === layerId)
+    if (!provider) return
 
-    // Remove temp layer
-    if (tempLayerRef.current) {
-      map.removeLayer(tempLayerRef.current)
-    }
-
-    // Draw temporary shape
-    const points = drawingPointsRef.current
-    let tempLayer: L.Layer | null = null
-
-    switch (drawingMode) {
-      case 'point':
-        tempLayer = L.marker([latlng.lat, latlng.lng])
-        break
-      case 'line':
-        if (points.length >= 2) {
-          tempLayer = L.polyline(points.map(p => [p.lat, p.lng]), {
-            color: '#10b981',
-            weight: 3,
-          })
-        }
-        break
-      case 'polygon':
-        if (points.length >= 2) {
-          tempLayer = L.polyline(points.map(p => [p.lat, p.lng]), {
-            color: '#10b981',
-            weight: 3,
-            dashArray: '5, 5',
-          })
-        }
-        if (points.length >= 3) {
-          tempLayer = L.polygon(points.map(p => [p.lat, p.lng]), {
-            color: '#10b981',
-            fillColor: '#10b981',
-            fillOpacity: 0.2,
-            weight: 3,
-          })
-        }
-        break
-      case 'rectangle':
-        if (points.length === 1) {
-          tempLayer = L.marker([latlng.lat, latlng.lng])
-        } else if (points.length === 2) {
-          const bounds = L.latLngBounds([
-            [points[0].lat, points[0].lng],
-            [points[1].lat, points[1].lng],
-          ])
-          tempLayer = L.rectangle(bounds, {
-            color: '#10b981',
-            fillColor: '#10b981',
-            fillOpacity: 0.2,
-            weight: 3,
-          })
-        }
-        break
-      case 'circle':
-        if (points.length === 1) {
-          tempLayer = L.marker([latlng.lat, latlng.lng])
-        } else if (points.length >= 2) {
-          const radius = map.distance(
-            [points[0].lat, points[0].lng],
-            [points[1].lat, points[1].lng]
-          )
-          tempLayer = L.circle([points[0].lat, points[0].lng], {
-            radius,
-            color: '#10b981',
-            fillColor: '#10b981',
-            fillOpacity: 0.2,
-            weight: 3,
-          })
-        }
-        break
-    }
-
-    if (tempLayer) {
-      tempLayer.addTo(map)
-      tempLayerRef.current = tempLayer
-    }
-
-    // Finalize drawing on double-click or specific conditions
-    if (drawingMode === 'point') {
-      finalizeDrawing()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawingMode])
-
-  // Finalize drawing
-  const finalizeDrawing = useCallback(() => {
-    const map = mapInstanceRef.current
-    const drawnItems = drawnItemsRef.current
-    if (!map || !L || !drawnItems || !drawingMode) return
-
-    const points = drawingPointsRef.current
-    if (points.length === 0) return
-
-    // Remove temp layer
-    if (tempLayerRef.current) {
-      map.removeLayer(tempLayerRef.current)
-      tempLayerRef.current = null
-    }
-
-    // Create final layer
-    let finalLayer: L.Layer | null = null
-    let featureType: MapFeature['type'] = drawingMode
-
-    switch (drawingMode) {
-      case 'point':
-        finalLayer = L.marker([points[0].lat, points[0].lng])
-        break
-      case 'line':
-        if (points.length >= 2) {
-          finalLayer = L.polyline(points.map(p => [p.lat, p.lng]), {
-            color: '#10b981',
-            weight: 3,
-          })
-        }
-        break
-      case 'polygon':
-        if (points.length >= 3) {
-          finalLayer = L.polygon(points.map(p => [p.lat, p.lng]), {
-            color: '#10b981',
-            fillColor: '#10b981',
-            fillOpacity: 0.2,
-            weight: 3,
-          })
-        }
-        break
-      case 'rectangle':
-        if (points.length >= 2) {
-          const bounds = L.latLngBounds(points.map(p => [p.lat, p.lng]))
-          finalLayer = L.rectangle(bounds, {
-            color: '#10b981',
-            fillColor: '#10b981',
-            fillOpacity: 0.2,
-            weight: 3,
-          })
-        }
-        break
-      case 'circle':
-        if (points.length >= 2) {
-          const radius = map.distance(
-            [points[0].lat, points[0].lng],
-            [points[1].lat, points[1].lng]
-          )
-          finalLayer = L.circle([points[0].lat, points[0].lng], {
-            radius,
-            color: '#10b981',
-            fillColor: '#10b981',
-            fillOpacity: 0.2,
-            weight: 3,
-          })
-        }
-        break
-    }
-
-    if (finalLayer) {
-      const featureId = `feature-${Date.now()}`
-      finalLayer.addTo(drawnItems)
-
-      const feature: MapFeature = {
-        id: featureId,
-        type: featureType,
-        coordinates: points,
-        layer: finalLayer,
-      }
-
-      onDraw?.(feature)
-
-      // Add click handler to select feature
-      finalLayer.on('click', (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e)
-        onFeatureSelect?.(feature)
-      })
-    }
-
-    // Reset drawing state
-    drawingPointsRef.current = []
-    toast.success('Forme ajoutée')
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawingMode])
-
-  // Cancel drawing
-  const cancelDrawing = useCallback(() => {
-    const map = mapInstanceRef.current
-    if (map && tempLayerRef.current) {
-      map.removeLayer(tempLayerRef.current)
-      tempLayerRef.current = null
-    }
-    drawingPointsRef.current = []
-  }, [])
-
-  // Change base layer
-  const changeBaseLayer = useCallback((layerId: string) => {
-    const map = mapInstanceRef.current
-    if (!map) return
-
-    const currentLayer = baseLayersRef.current.get(currentBaseLayerRef.current)
-    const newLayer = baseLayersRef.current.get(layerId)
-
-    if (currentLayer && newLayer) {
-      map.removeLayer(currentLayer)
-      newLayer.addTo(map)
-      currentBaseLayerRef.current = layerId
-      setActiveBaseLayer(layerId)
-    }
+    tileLayerRef.current.remove()
+    tileLayerRef.current = L.tileLayer(provider.url, {
+      attribution: provider.attribution,
+      maxZoom: 20,
+    })
+    tileLayerRef.current.addTo(mapRef.current)
+    setActiveLayer(layerId)
   }, [])
 
   // Zoom controls
   const zoomIn = useCallback(() => {
-    mapInstanceRef.current?.zoomIn()
+    mapRef.current?.zoomIn()
   }, [])
 
   const zoomOut = useCallback(() => {
-    mapInstanceRef.current?.zoomOut()
+    mapRef.current?.zoomOut()
   }, [])
 
-  const locateUser = useCallback(() => {
-    const map = mapInstanceRef.current
-    if (!map) return
-
-    map.locate({ setView: true, maxZoom: 16 })
-    map.on('locationfound', (e) => {
-      L?.marker(e.latlng)
-        .addTo(map)
-        .bindPopup('Vous êtes ici')
-        .openPopup()
-    })
-    map.on('locationerror', () => {
-      toast.error('Impossible de déterminer votre position')
-    })
+  const goToLocation = useCallback((lat: number, lng: number, z: number = 14) => {
+    mapRef.current?.setView([lat, lng], z)
   }, [])
 
-  // Clear all drawings
+  // Search
+  const handleSearch = useCallback((e: React.FormEvent) => {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
+
+    const city = CITIES.find(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    if (city) {
+      goToLocation(city.lat, city.lng, 12)
+      toast.success(`${city.name} trouvé`)
+      return
+    }
+
+    const parts = searchQuery.split(',').map(s => parseFloat(s.trim()))
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      goToLocation(parts[0], parts[1], 14)
+      toast.success('Position trouvée')
+    } else {
+      toast.error('Lieu non trouvé')
+    }
+  }, [searchQuery, goToLocation])
+
+  // Drawing handlers
+  const startDrawing = useCallback((mode: string) => {
+    const L = (window as any).L
+    if (!L || !mapRef.current || !drawnItemsRef.current) return
+
+    setDrawingMode(mode)
+    mapRef.current.getContainer().style.cursor = 'crosshair'
+
+    let points: [number, number][] = []
+    let tempLine: L.Polyline | null = null
+
+    const onClick = (e: L.LeafletMouseEvent) => {
+      points.push([e.latlng.lat, e.latlng.lng])
+
+      if (mode === 'marker') {
+        L.marker(e.latlng).addTo(drawnItemsRef.current!)
+        setMeasurements(prev => [...prev, { type: 'Point', value: `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}` }])
+        finishDrawing()
+      } else if (mode === 'polyline') {
+        if (tempLine) tempLine.remove()
+        tempLine = L.polyline(points, { color: '#14b8a6', weight: 3 }).addTo(mapRef.current!)
+      } else if (mode === 'polygon') {
+        if (tempLine) tempLine.remove()
+        tempLine = L.polyline(points, { color: '#14b8a6', weight: 3 }).addTo(mapRef.current!)
+      }
+    }
+
+    const onDblClick = (e: L.LeafletMouseEvent) => {
+      if (mode === 'polyline' && points.length >= 2) {
+        if (tempLine) tempLine.remove()
+        L.polyline(points, { color: '#14b8a6', weight: 3 }).addTo(drawnItemsRef.current!)
+        
+        // Calculate distance
+        let distance = 0
+        for (let i = 0; i < points.length - 1; i++) {
+          distance += mapRef.current!.distance(points[i], points[i + 1])
+        }
+        setMeasurements(prev => [...prev, { type: 'Distance', value: `${(distance / 1000).toFixed(2)} km` }])
+      } else if (mode === 'polygon' && points.length >= 3) {
+        if (tempLine) tempLine.remove()
+        L.polygon(points, { color: '#14b8a6', weight: 3, fillOpacity: 0.3 }).addTo(drawnItemsRef.current!)
+        setMeasurements(prev => [...prev, { type: 'Polygone', value: `${points.length} points` }])
+      }
+      finishDrawing()
+    }
+
+    const finishDrawing = () => {
+      mapRef.current!.off('click', onClick)
+      mapRef.current!.off('dblclick', onDblClick)
+      if (tempLine) tempLine.remove()
+      mapRef.current!.getContainer().style.cursor = ''
+      setDrawingMode(null)
+    }
+
+    mapRef.current.on('click', onClick)
+    mapRef.current.on('dblclick', onDblClick)
+    
+    toast.info(`Cliquez pour ajouter des points. Double-clic pour terminer.`)
+  }, [])
+
+  // Clear drawings
   const clearDrawings = useCallback(() => {
-    const drawnItems = drawnItemsRef.current
-    if (drawnItems) {
-      drawnItems.clearLayers()
+    if (drawnItemsRef.current) {
+      drawnItemsRef.current.clearLayers()
+      setMeasurements([])
       toast.success('Dessins effacés')
     }
   }, [])
 
-  // Export as GeoJSON
+  // Export GeoJSON
   const exportGeoJSON = useCallback(() => {
-    const drawnItems = drawnItemsRef.current
-    if (!drawnItems || !L) return
-
-    const geojson = drawnItems.toGeoJSON()
-    const blob = new Blob([JSON.stringify(geojson, null, 2)], {
-      type: 'application/json',
-    })
+    if (!drawnItemsRef.current) return
+    
+    const L = (window as any).L
+    const geojson = drawnItemsRef.current.toGeoJSON()
+    const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'features.geojson'
+    a.download = 'geo_e_export.geojson'
     a.click()
     URL.revokeObjectURL(url)
     toast.success('GeoJSON exporté')
   }, [])
 
-  // Add GeoJSON layer
-  const addGeoJSON = useCallback((geojson: GeoJSON.GeoJSON) => {
-    const map = mapInstanceRef.current
-    const drawnItems = drawnItemsRef.current
-    if (!map || !L || !drawnItems) return
+  // Import GeoJSON
+  const importGeoJSON = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !drawnItemsRef.current || !mapRef.current) return
 
-    L.geoJSON(geojson, {
-      style: {
-        color: '#10b981',
-        weight: 3,
-        fillColor: '#10b981',
-        fillOpacity: 0.2,
-      },
-      pointToLayer: (feature, latlng) => {
-        return L.marker(latlng)
-      },
-      onEachFeature: (feature, layer) => {
-        if (feature.properties) {
-          layer.bindPopup(
-            Object.entries(feature.properties)
-              .map(([k, v]) => `<b>${k}:</b> ${v}`)
-              .join('<br/>')
-          )
-        }
-      },
-    }).addTo(drawnItems)
-
-    // Fit bounds
-    const bounds = drawnItems.getBounds()
-    if (bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [50, 50] })
+    const L = (window as any).L
+    const reader = new FileReader()
+    
+    reader.onload = (event) => {
+      try {
+        const geojson = JSON.parse(event.target?.result as string)
+        const layer = L.geoJSON(geojson, {
+          style: { color: '#14b8a6', weight: 3, fillOpacity: 0.3 },
+        })
+        layer.addTo(drawnItemsRef.current)
+        mapRef.current.fitBounds(layer.getBounds())
+        toast.success('GeoJSON importé')
+      } catch {
+        toast.error('Erreur lors de l\'import')
+      }
     }
-
-    toast.success('GeoJSON ajouté')
+    reader.readAsText(file)
+    e.target.value = ''
   }, [])
 
-  // Expose methods
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      (window as unknown as { mapViewerRef: { current: {
-        addGeoJSON: typeof addGeoJSON
-        clearDrawings: typeof clearDrawings
-        exportGeoJSON: typeof exportGeoJSON
-        changeBaseLayer: typeof changeBaseLayer
-        zoomIn: typeof zoomIn
-        zoomOut: typeof zoomOut
-        cancelDrawing: typeof cancelDrawing
-        finalizeDrawing: typeof finalizeDrawing
-      } } }).mapViewerRef = {
-        current: {
-          addGeoJSON,
-          clearDrawings,
-          exportGeoJSON,
-          changeBaseLayer,
-          zoomIn,
-          zoomOut,
-          cancelDrawing,
-          finalizeDrawing,
-        },
-      }
-    }
-  }, [addGeoJSON, clearDrawings, exportGeoJSON, changeBaseLayer, zoomIn, zoomOut, cancelDrawing, finalizeDrawing])
-
-  // Update features
-  useEffect(() => {
-    const drawnItems = drawnItemsRef.current
-    if (!drawnItems || !L) return
-
-    // Clear existing layers
-    drawnItems.clearLayers()
-
-    // Add features
-    features.forEach((feature) => {
-      let layer: L.Layer | null = null
-
-      switch (feature.type) {
-        case 'point':
-          layer = L.marker([feature.coordinates[0].lat, feature.coordinates[0].lng])
-          break
-        case 'line':
-          layer = L.polyline(feature.coordinates.map(c => [c.lat, c.lng]), {
-            color: '#10b981',
-            weight: 3,
-          })
-          break
-        case 'polygon':
-          layer = L.polygon(feature.coordinates.map(c => [c.lat, c.lng]), {
-            color: '#10b981',
-            fillColor: '#10b981',
-            fillOpacity: 0.2,
-            weight: 3,
-          })
-          break
-      }
-
-      if (layer) {
-        layer.addTo(drawnItems)
-      }
-    })
-  }, [features])
-
   return (
-    <div className={`relative ${className}`} style={{ height }}>
-      <div ref={mapRef} className="w-full h-full rounded-lg" />
+    <div className={`relative h-full ${className}`}>
+      {/* Map container */}
+      <div ref={mapContainerRef} className="w-full h-full rounded-lg" />
 
-      {/* Map controls */}
-      <div className="absolute top-4 right-4 flex flex-col gap-2">
-        <div className="bg-background/95 backdrop-blur rounded-lg shadow-lg p-1 flex flex-col gap-1">
-          <Button variant="ghost" size="icon" onClick={zoomIn} title="Zoom avant">
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={zoomOut} title="Zoom arrière">
-            <ZoomOut className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={locateUser} title="Ma position">
-            <Locate className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-
-      {/* Layer selector */}
-      <div className="absolute top-4 left-4 flex flex-col gap-2">
-        <div className="bg-background/95 backdrop-blur rounded-lg shadow-lg p-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2"
-            onClick={() => setShowLayerPanel(!showLayerPanel)}
-          >
-            <Layers className="h-4 w-4" />
-            Couches
-          </Button>
-        </div>
-
-        {showLayerPanel && (
-          <Card className="w-48">
-            <CardContent className="p-2">
-              <div className="space-y-1">
-                {Object.entries(baseLayers).map(([key, layer]) => (
-                  <Button
-                    key={key}
-                    variant={activeBaseLayer === key ? 'default' : 'ghost'}
-                    size="sm"
-                    className="w-full justify-start"
-                    onClick={() => changeBaseLayer(key)}
-                  >
-                    {layer.name}
-                  </Button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      {/* Drawing info */}
-      {drawingMode && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
-          <Card>
-            <CardContent className="p-3 flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Ruler className="h-4 w-4 text-primary" />
-                <span className="text-sm">
-                  Mode dessin: <Badge>{drawingMode}</Badge>
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={finalizeDrawing}
-                >
-                  Terminer
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={cancelDrawing}
-                >
-                  Annuler
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+      {/* Loading overlay */}
+      {!isLoaded && (
+        <div className="absolute inset-0 bg-slate-900 flex items-center justify-center rounded-lg">
+          <div className="text-center text-white">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+            <p>Chargement de la carte...</p>
+          </div>
         </div>
       )}
 
-      {/* Actions bar */}
-      <div className="absolute bottom-4 right-4 flex gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          className="gap-2"
-          onClick={exportGeoJSON}
-        >
-          <Download className="h-4 w-4" />
-          Exporter
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          className="gap-2"
-          onClick={clearDrawings}
-        >
-          <Trash2 className="h-4 w-4" />
-          Effacer
-        </Button>
+      {/* Top controls */}
+      <div className="absolute top-4 left-4 right-4 flex justify-between pointer-events-none z-[1000]">
+        {/* Search */}
+        <Card className="p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur pointer-events-auto">
+          <form onSubmit={handleSearch} className="flex gap-2">
+            <Input
+              type="text"
+              placeholder="Rechercher un lieu..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-48 h-8"
+            />
+            <Button type="submit" size="sm">
+              <Search className="h-4 w-4" />
+            </Button>
+          </form>
+        </Card>
+
+        {/* Zoom controls */}
+        <Card className="p-1 bg-white/95 dark:bg-slate-900/95 backdrop-blur pointer-events-auto">
+          <div className="flex gap-1">
+            <Button variant="ghost" size="icon" onClick={zoomIn}>
+              <ZoomIn className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={zoomOut}>
+              <ZoomOut className="h-4 w-4" />
+            </Button>
+          </div>
+        </Card>
+      </div>
+
+      {/* Layer switcher */}
+      <div className="absolute top-20 left-4 z-[1000]">
+        <Card className="p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur">
+          <div className="flex flex-col gap-1">
+            {TILE_PROVIDERS.map((provider) => (
+              <Button
+                key={provider.id}
+                variant={activeLayer === provider.id ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => changeTileLayer(provider.id)}
+                className="justify-start gap-2"
+              >
+                <provider.icon className="h-4 w-4" />
+                {provider.name}
+              </Button>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* Drawing tools */}
+      <div className="absolute top-20 right-4 z-[1000]">
+        <Card className="p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur">
+          <div className="flex flex-col gap-1">
+            <Button
+              variant={drawingMode === 'marker' ? 'default' : 'ghost'}
+              size="icon"
+              onClick={() => startDrawing('marker')}
+              title="Point"
+            >
+              <MapPin className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={drawingMode === 'polyline' ? 'default' : 'ghost'}
+              size="icon"
+              onClick={() => startDrawing('polyline')}
+              title="Ligne"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={drawingMode === 'polygon' ? 'default' : 'ghost'}
+              size="icon"
+              onClick={() => startDrawing('polygon')}
+              title="Polygone"
+            >
+              <Square className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={clearDrawings}
+              title="Effacer"
+              className="text-destructive hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </Card>
+      </div>
+
+      {/* Import/Export */}
+      <div className="absolute bottom-4 right-4 z-[1000]">
+        <Card className="p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur">
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <label className="cursor-pointer">
+                <Upload className="h-4 w-4 mr-1" />
+                Import
+                <input type="file" accept=".geojson,.json" className="hidden" onChange={importGeoJSON} />
+              </label>
+            </Button>
+            <Button variant="outline" size="sm" onClick={exportGeoJSON}>
+              <Download className="h-4 w-4 mr-1" />
+              Export
+            </Button>
+          </div>
+        </Card>
       </div>
 
       {/* Coordinates display */}
-      <div className="absolute bottom-4 left-4 bg-background/95 backdrop-blur rounded-lg p-2 text-xs">
-        <div className="text-muted-foreground">
-          Lat: {currentCenter[0].toFixed(6)} | Lng: {currentCenter[1].toFixed(6)} | Zoom: {currentZoom}
-        </div>
+      <div className="absolute bottom-4 left-4 z-[1000]">
+        <Card className="p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur text-xs">
+          <div className="flex items-center gap-4">
+            <div>
+              <span className="text-muted-foreground">Lat: </span>
+              <span className="font-mono">{coords.lat.toFixed(5)}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Lng: </span>
+              <span className="font-mono">{coords.lng.toFixed(5)}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Zoom: </span>
+              <span className="font-mono">{zoom}</span>
+            </div>
+          </div>
+        </Card>
       </div>
+
+      {/* Quick cities */}
+      <div className="absolute bottom-16 left-4 z-[1000]">
+        <Card className="p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur">
+          <div className="flex gap-1">
+            {CITIES.slice(0, 3).map((city) => (
+              <Button
+                key={city.name}
+                variant="ghost"
+                size="sm"
+                onClick={() => goToLocation(city.lat, city.lng, 12)}
+              >
+                {city.name}
+              </Button>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* Measurements */}
+      {measurements.length > 0 && (
+        <div className="absolute top-36 left-4 z-[1000]">
+          <Card className="p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur">
+            <div className="flex items-center gap-2 text-sm">
+              <Ruler className="h-4 w-4" />
+              <div className="flex flex-wrap gap-2">
+                {measurements.map((m, i) => (
+                  <Badge key={i} variant="secondary">
+                    {m.type}: {m.value}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }
 
-// Export helper function to load GeoJSON into map
-export function loadGeoJSONToMap(geojson: GeoJSON.GeoJSON) {
-  const mapViewer = (window as unknown as { mapViewerRef?: { current: { addGeoJSON: (g: GeoJSON.GeoJSON) => void } } }).mapViewerRef
-  mapViewer?.current?.addGeoJSON(geojson)
-}
-
-export function finalizeMapDrawing() {
-  const mapViewer = (window as unknown as { mapViewerRef?: { current: { finalizeDrawing: () => void } } }).mapViewerRef
-  mapViewer?.current?.finalizeDrawing()
-}
-
-export function cancelMapDrawing() {
-  const mapViewer = (window as unknown as { mapViewerRef?: { current: { cancelDrawing: () => void } } }).mapViewerRef
-  mapViewer?.current?.cancelDrawing()
+export default function MapViewer(props: MapViewerProps) {
+  return <MapViewerComponent {...props} />
 }
