@@ -5,10 +5,8 @@ import dynamic from 'next/dynamic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { 
   Loader2, 
-  Box, 
   Mountain, 
   Building2, 
   TreePine, 
@@ -16,14 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
-  Ruler,
-  BarChart3,
-  Camera,
-  FileImage,
-  Calendar,
   HardDrive,
   MapPin,
-  Info,
   Eye,
   EyeOff,
 } from 'lucide-react'
@@ -122,7 +114,7 @@ function StatsOverlay({ data }: { data: typeof DEMO_POINT_CLOUDS[0] | null }) {
   )
 }
 
-// Thumbnail card component - Shows data only, no logo
+// Thumbnail card component - Compact version
 function ThumbnailCard({ 
   data, 
   isSelected, 
@@ -135,64 +127,38 @@ function ThumbnailCard({
   return (
     <motion.button
       onClick={onClick}
-      className={`relative w-full rounded-xl overflow-hidden transition-all ${
+      className={`relative w-full rounded-lg overflow-hidden transition-all ${
         isSelected 
-          ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' 
-          : 'hover:ring-2 hover:ring-primary/50 border border-border'
+          ? 'ring-2 ring-primary bg-primary/5' 
+          : 'hover:bg-muted/50 border border-border'
       }`}
-      whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
     >
-      {/* Data card - No icon, just information */}
-      <div className="p-4 bg-card text-left">
-        <div className="flex items-start justify-between mb-2">
-          <p className="font-semibold truncate flex-1">{data.name}</p>
+      {/* Compact data card */}
+      <div className="p-2 text-left">
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-medium text-sm truncate flex-1">{data.name}</p>
           {isSelected && (
-            <div className="bg-primary rounded-full p-1 ml-2 flex-shrink-0">
+            <div className="bg-primary rounded-full p-0.5 flex-shrink-0">
               <Eye className="h-3 w-3 text-primary-foreground" />
             </div>
           )}
         </div>
         
-        {/* Description */}
-        <p className="text-xs text-muted-foreground mb-3">{data.description}</p>
-        
-        {/* Data grid */}
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="flex items-center gap-1.5">
-            <Database className="h-3 w-3 text-muted-foreground" />
-            <span className="font-medium">{data.points.toLocaleString()}</span>
-            <span className="text-muted-foreground">pts</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <HardDrive className="h-3 w-3 text-muted-foreground" />
-            <span>{data.size}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <MapPin className="h-3 w-3 text-muted-foreground" />
-            <span>{data.extent}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Mountain className="h-3 w-3 text-muted-foreground" />
-            <span>{data.elevation}</span>
-          </div>
-        </div>
-
-        {/* Quality badge */}
-        <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border">
-          <Badge variant="secondary" className="text-xs">
-            {data.quality}
-          </Badge>
-          <Badge variant="outline" className="text-xs">
-            {data.density}
-          </Badge>
+        {/* Data row - compact */}
+        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{data.points.toLocaleString()} pts</span>
+          <span>•</span>
+          <span>{data.extent}</span>
+          <span>•</span>
+          <span>{data.size}</span>
         </div>
       </div>
     </motion.button>
   )
 }
 
-// Uploaded file thumbnail - Shows data only
+// Uploaded file thumbnail - Compact version
 function FileThumbnail({ 
   file, 
   isSelected, 
@@ -202,76 +168,44 @@ function FileThumbnail({
   isSelected: boolean
   onClick: () => void 
 }) {
-  const getFileType = () => {
-    return file.type.toUpperCase()
-  }
-
   return (
     <motion.button
       onClick={onClick}
-      className={`relative w-full rounded-xl overflow-hidden transition-all ${
+      className={`relative w-full rounded-lg overflow-hidden transition-all ${
         isSelected 
-          ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' 
-          : 'hover:ring-2 hover:ring-primary/50 border border-border'
+          ? 'ring-2 ring-primary bg-primary/5' 
+          : 'hover:bg-muted/50 border border-border'
       }`}
-      whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
     >
-      {/* Data card - No icon, just information */}
-      <div className="p-4 bg-card text-left">
-        <div className="flex items-start justify-between mb-2">
-          <p className="font-semibold truncate flex-1">{file.name}</p>
+      {/* Compact data card */}
+      <div className="p-2 text-left">
+        <div className="flex items-center justify-between gap-2">
+          <p className="font-medium text-sm truncate flex-1">{file.name}</p>
           {isSelected && (
-            <div className="bg-primary rounded-full p-1 ml-2 flex-shrink-0">
+            <div className="bg-primary rounded-full p-0.5 flex-shrink-0">
               <Eye className="h-3 w-3 text-primary-foreground" />
             </div>
           )}
         </div>
         
-        {/* File type badge */}
-        <Badge variant="secondary" className="text-xs mb-3">
-          {getFileType()}
-        </Badge>
-        
-        {/* Data grid */}
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="flex items-center gap-1.5">
-            <HardDrive className="h-3 w-3 text-muted-foreground" />
-            <span className="font-medium">{formatFileSize(file.size)}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Calendar className="h-3 w-3 text-muted-foreground" />
-            <span>{new Date(file.uploadedAt).toLocaleDateString('fr-FR')}</span>
-          </div>
+        {/* Data row - compact */}
+        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+          <Badge variant="secondary" className="text-xs px-1.5 py-0">{file.type.toUpperCase()}</Badge>
+          <span>{formatFileSize(file.size)}</span>
           {file.analysis?.pointCloud?.pointCount && (
-            <div className="flex items-center gap-1.5 col-span-2">
-              <Database className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium">{file.analysis.pointCloud.pointCount.toLocaleString()}</span>
-              <span className="text-muted-foreground">points</span>
-            </div>
+            <>
+              <span>•</span>
+              <span className="font-medium text-foreground">{file.analysis.pointCloud.pointCount.toLocaleString()} pts</span>
+            </>
           )}
         </div>
-
-        {/* Analysis status */}
-        {file.analysis ? (
-          <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border">
-            <Badge variant="outline" className="text-xs text-green-600 border-green-200">
-              Analysé
-            </Badge>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border">
-            <Badge variant="outline" className="text-xs text-muted-foreground">
-              En attente d'analyse
-            </Badge>
-          </div>
-        )}
       </div>
     </motion.button>
   )
 }
 
-// Data panel component
+// Data panel component - Compact
 function DataPanel({ 
   isOpen, 
   onToggle, 
@@ -292,17 +226,17 @@ function DataPanel({
   return (
     <motion.div
       initial={false}
-      animate={{ width: isOpen ? 320 : 48 }}
-      className="h-full bg-background border-l flex flex-col relative z-20"
+      animate={{ width: isOpen ? 260 : 40 }}
+      className="h-full bg-background/95 backdrop-blur border-l flex flex-col relative z-20"
     >
       {/* Toggle button */}
       <Button
         variant="ghost"
         size="icon"
         onClick={onToggle}
-        className="absolute -left-4 top-4 z-30 h-8 w-8 rounded-full border bg-background shadow-md"
+        className="absolute -left-4 top-2 z-30 h-7 w-7 rounded-full border bg-background shadow-md"
       >
-        {isOpen ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        {isOpen ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
       </Button>
 
       <AnimatePresence mode="wait">
@@ -312,77 +246,58 @@ function DataPanel({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex-1 flex flex-col overflow-hidden"
+            className="flex-1 flex flex-col overflow-hidden p-2"
           >
-            {/* Header */}
-            <div className="p-4 border-b">
-              <div className="flex items-center gap-2">
-                <Layers className="h-5 w-5 text-primary" />
-                <h2 className="font-semibold">Données</h2>
+            {/* Demo scenes */}
+            <div className="mb-2">
+              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 px-1">
+                Démo
+              </h3>
+              <div className="space-y-1">
+                {DEMO_POINT_CLOUDS.map((demo) => (
+                  <ThumbnailCard
+                    key={demo.id}
+                    data={demo}
+                    isSelected={selectedDemo.id === demo.id && !selectedFile}
+                    onClick={() => {
+                      onSelectDemo(demo)
+                      onSelectFile(null)
+                    }}
+                  />
+                ))}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Scènes démo & fichiers importés
-              </p>
             </div>
 
-            {/* Scrollable content */}
-            <ScrollArea className="flex-1 p-4">
-              <div className="space-y-6">
-                {/* Demo scenes */}
-                <div>
-                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-                    Scènes de démonstration
-                  </h3>
-                  <div className="space-y-3">
-                    {DEMO_POINT_CLOUDS.map((demo) => (
-                      <ThumbnailCard
-                        key={demo.id}
-                        data={demo}
-                        isSelected={selectedDemo.id === demo.id && !selectedFile}
-                        onClick={() => {
-                          onSelectDemo(demo)
-                          onSelectFile(null)
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Uploaded files */}
-                {pointCloudFiles.length > 0 && (
-                  <div>
-                    <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-                      Fichiers importés ({pointCloudFiles.length})
-                    </h3>
-                    <div className="space-y-3">
-                      {pointCloudFiles.map((file) => (
-                        <FileThumbnail
-                          key={file.id}
-                          file={file}
-                          isSelected={selectedFile?.id === file.id}
-                          onClick={() => onSelectFile(file)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Upload area */}
-                <div>
-                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-                    Importer
-                  </h3>
-                  <FileUpload
-                    acceptedTypes={['las', 'laz']}
-                    onFileUpload={(file) => {
-                      toast.success(`Fichier "${file.name}" importé`)
-                    }}
-                    multiple
-                    maxSize={500 * 1024 * 1024}
-                  />
+            {/* Uploaded files */}
+            {pointCloudFiles.length > 0 && (
+              <div className="mb-2">
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 px-1">
+                  Fichiers ({pointCloudFiles.length})
+                </h3>
+                <div className="space-y-1">
+                  {pointCloudFiles.map((file) => (
+                    <FileThumbnail
+                      key={file.id}
+                      file={file}
+                      isSelected={selectedFile?.id === file.id}
+                      onClick={() => onSelectFile(file)}
+                    />
+                  ))}
                 </div>
               </div>
-            </ScrollArea>
+            )}
+
+            {/* Upload */}
+            <div className="mt-auto pt-2 border-t">
+              <FileUpload
+                acceptedTypes={['las', 'laz']}
+                onFileUpload={(file) => {
+                  toast.success(`Fichier "${file.name}" importé`)
+                }}
+                multiple
+                maxSize={500 * 1024 * 1024}
+              />
+            </div>
           </motion.div>
         ) : (
           <motion.div
@@ -390,16 +305,10 @@ function DataPanel({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col items-center py-4 gap-3"
+            className="flex flex-col items-center py-2 gap-1"
           >
-            <div className="relative">
-              <Layers className="h-5 w-5 text-muted-foreground" />
-              <Badge className="absolute -top-2 -right-2 h-5 w-5 p-0 flex items-center justify-center text-xs">
-                {DEMO_POINT_CLOUDS.length + pointCloudFiles.length}
-              </Badge>
-            </div>
-            <div className="w-8 h-px bg-border" />
-            {/* Show small data indicators */}
+            <Layers className="h-4 w-4 text-muted-foreground" />
+            <div className="w-6 h-px bg-border my-1" />
             {DEMO_POINT_CLOUDS.slice(0, 3).map((demo) => (
               <motion.button
                 key={demo.id}
@@ -408,7 +317,7 @@ function DataPanel({
                   onSelectFile(null)
                   onToggle()
                 }}
-                className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center text-xs font-bold ${
+                className={`w-6 h-6 rounded border flex items-center justify-center text-[10px] font-bold ${
                   selectedDemo.id === demo.id && !selectedFile
                     ? 'border-primary bg-primary text-primary-foreground'
                     : 'border-border bg-card hover:border-primary/50'
@@ -417,17 +326,9 @@ function DataPanel({
                 whileTap={{ scale: 0.95 }}
                 title={demo.name}
               >
-                {demo.points >= 60000 ? 'F' : demo.points >= 50000 ? 'T' : 'B'}
+                {demo.name.charAt(0)}
               </motion.button>
             ))}
-            {pointCloudFiles.length > 0 && (
-              <>
-                <div className="w-8 h-px bg-border" />
-                <div className="w-8 h-8 rounded-lg border border-border bg-card flex items-center justify-center text-xs">
-                  +{pointCloudFiles.length}
-                </div>
-              </>
-            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -435,7 +336,7 @@ function DataPanel({
   )
 }
 
-// Metadata overlay panel
+// Metadata overlay panel - Compact
 function MetadataPanel({ 
   data,
   file,
@@ -467,117 +368,64 @@ function MetadataPanel({
     <motion.div
       initial={false}
       animate={{ 
-        width: isOpen ? 280 : 0,
+        width: isOpen ? 200 : 0,
         opacity: isOpen ? 1 : 0
       }}
-      className="h-full bg-black/70 backdrop-blur-sm overflow-hidden flex flex-col border-l border-white/10"
+      className="h-full bg-black/80 backdrop-blur-sm overflow-hidden flex flex-col border-l border-white/10"
     >
       {isOpen && (
-        <div className="p-4 text-white">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Info className="h-4 w-4" />
-              <h3 className="font-medium text-sm">Métadonnées</h3>
-            </div>
+        <div className="p-3 text-white text-sm">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-medium text-xs uppercase tracking-wider">Infos</h3>
             <Button
               variant="ghost"
               size="icon"
               onClick={onToggle}
-              className="h-6 w-6 text-white hover:bg-white/10"
+              className="h-5 w-5 text-white/60 hover:text-white hover:bg-white/10"
             >
-              <EyeOff className="h-4 w-4" />
+              <EyeOff className="h-3 w-3" />
             </Button>
           </div>
 
-          <div className="space-y-4">
-            {/* Main info */}
-            <div>
-              <p className="font-semibold text-base">{displayData.name}</p>
-              <p className="text-xs text-white/60 mt-1">
-                {file ? 'Fichier importé' : 'Scène de démonstration'}
-              </p>
+          <p className="font-semibold text-sm truncate mb-2">{displayData.name}</p>
+
+          {/* Stats - compact */}
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between">
+              <span className="text-white/60">Points</span>
+              <span className="font-medium">{typeof displayData.points === 'number' ? displayData.points.toLocaleString() : displayData.points}</span>
             </div>
-
-            {/* Stats grid */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-white/10 rounded-lg p-3">
-                <div className="flex items-center gap-2 text-white/60 mb-1">
-                  <Database className="h-3 w-3" />
-                  <span className="text-xs">Points</span>
-                </div>
-                <p className="font-bold">{typeof displayData.points === 'number' ? displayData.points.toLocaleString() : displayData.points}</p>
-              </div>
-              <div className="bg-white/10 rounded-lg p-3">
-                <div className="flex items-center gap-2 text-white/60 mb-1">
-                  <MapPin className="h-3 w-3" />
-                  <span className="text-xs">Emprise</span>
-                </div>
-                <p className="font-bold">{displayData.extent}</p>
-              </div>
-              <div className="bg-white/10 rounded-lg p-3">
-                <div className="flex items-center gap-2 text-white/60 mb-1">
-                  <Mountain className="h-3 w-3" />
-                  <span className="text-xs">Élévation</span>
-                </div>
-                <p className="font-bold">{displayData.elevation}</p>
-              </div>
-              <div className="bg-white/10 rounded-lg p-3">
-                <div className="flex items-center gap-2 text-white/60 mb-1">
-                  <HardDrive className="h-3 w-3" />
-                  <span className="text-xs">Taille</span>
-                </div>
-                <p className="font-bold">{displayData.size}</p>
-              </div>
+            <div className="flex justify-between">
+              <span className="text-white/60">Emprise</span>
+              <span>{displayData.extent}</span>
             </div>
-
-            {/* Additional info */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm">
-                <Calendar className="h-4 w-4 text-white/60" />
-                <span className="text-white/60">Date:</span>
-                <span>{displayData.date}</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <Ruler className="h-4 w-4 text-white/60" />
-                <span className="text-white/60">Précision:</span>
-                <span>{displayData.quality}</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <BarChart3 className="h-4 w-4 text-white/60" />
-                <span className="text-white/60">Densité:</span>
-                <span>{displayData.density}</span>
-              </div>
+            <div className="flex justify-between">
+              <span className="text-white/60">Élévation</span>
+              <span>{displayData.elevation}</span>
             </div>
-
-            {/* Features */}
-            {!file && data?.features && data.features.length > 0 && (
-              <div>
-                <p className="text-xs text-white/60 mb-2">Éléments détectés</p>
-                <div className="flex flex-wrap gap-2">
-                  {data.features.map((feature, i) => (
-                    <Badge key={i} variant="outline" className="border-white/30 text-white">
-                      {feature}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Quick actions */}
-            <div className="pt-4 border-t border-white/10">
-              <p className="text-xs text-white/60 mb-2">Actions rapides</p>
-              <div className="grid grid-cols-2 gap-2">
-                <Button size="sm" variant="outline" className="border-white/30 text-white hover:bg-white/10">
-                  <Ruler className="h-3 w-3 mr-2" />
-                  Mesurer
-                </Button>
-                <Button size="sm" variant="outline" className="border-white/30 text-white hover:bg-white/10">
-                  <Camera className="h-3 w-3 mr-2" />
-                  Capturer
-                </Button>
-              </div>
+            <div className="flex justify-between">
+              <span className="text-white/60">Taille</span>
+              <span>{displayData.size}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/60">Précision</span>
+              <span>{displayData.quality}</span>
             </div>
           </div>
+
+          {/* Features */}
+          {!file && data?.features && data.features.length > 0 && (
+            <div className="mt-3 pt-2 border-t border-white/10">
+              <p className="text-xs text-white/60 mb-1">Éléments</p>
+              <div className="flex flex-wrap gap-1">
+                {data.features.map((feature, i) => (
+                  <Badge key={i} variant="outline" className="text-[10px] px-1 py-0 border-white/30 text-white">
+                    {feature}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </motion.div>
