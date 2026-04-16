@@ -9,6 +9,7 @@ export interface FileAnalysisResult {
   fileType: string
   fileSize: number
   analyzedAt: Date
+  location?: string
   
   // Bounding box
   boundingBox?: {
@@ -511,6 +512,30 @@ export async function analyzeFile(
         result.error = `Type de fichier non supporté pour l'analyse: ${fileType}`
     }
     
+    // Automatic Geocoding if we have bounds
+    if (result.boundingBox && !result.location) {
+      const centerLat = (result.boundingBox.minLat + result.boundingBox.maxLat) / 2;
+      const centerLng = (result.boundingBox.minLng + result.boundingBox.maxLng) / 2;
+      
+      try {
+        // Enforce user-agent per Nominatim Policy
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${centerLat}&lon=${centerLng}&zoom=14`, {
+          headers: { 'User-Agent': 'GeoEnqueteur Analyste v1.0' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.address) {
+            const city = data.address.city || data.address.town || data.address.village || data.address.county || data.address.state;
+            if (city && data.address.country) {
+              result.location = `${city}, ${data.address.country}`;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Geocoding error:', err);
+      }
+    }
+
     result.status = 'completed'
     
   } catch (error) {
@@ -527,6 +552,10 @@ export async function analyzeFile(
 export function formatAnalysisResult(analysis: FileAnalysisResult): string[] {
   const lines: string[] = []
   
+  if (analysis.location) {
+    lines.push(`Localisation: ${analysis.location}`)
+  }
+
   if (analysis.boundingBox) {
     lines.push(`Zone: ${analysis.boundingBox.minLat.toFixed(4)}° à ${analysis.boundingBox.maxLat.toFixed(4)}° N`)
     lines.push(`       ${analysis.boundingBox.minLng.toFixed(4)}° à ${analysis.boundingBox.maxLng.toFixed(4)}° E`)

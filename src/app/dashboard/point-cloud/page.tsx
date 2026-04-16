@@ -437,9 +437,11 @@ function MetadataPanel({
     extent: file.analysis?.bounds ? 
       `${Math.round(file.analysis.bounds.maxX - file.analysis.bounds.minX)}m x ${Math.round(file.analysis.bounds.maxY - file.analysis.bounds.minY)}m` : 
       'N/A',
-    elevation: file.analysis?.pointCloud?.elevationRange || 'N/A',
+    elevation: file.analysis?.pointCloud?.elevationRange ? 
+      `${file.analysis.pointCloud.elevationRange.min.toFixed(1)}m - ${file.analysis.pointCloud.elevationRange.max.toFixed(1)}m` : 
+      'N/A',
     size: formatFileSize(file.size),
-    date: new Date(file.uploadedAt).toLocaleDateString('fr-FR'),
+    date: new Date(file.uploadedAt || file.createdAt || Date.now()).toLocaleDateString('fr-FR'),
     quality: file.analysis?.pointCloud?.density ? `~${file.analysis.pointCloud.density} pts/m²` : 'N/A',
     density: file.analysis?.pointCloud?.density || 'N/A',
     features: [],

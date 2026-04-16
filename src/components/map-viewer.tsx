@@ -23,6 +23,8 @@ import {
   Ruler,
   Search,
   Loader2,
+  Building2,
+  TrendingUp
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -84,6 +86,9 @@ export function MapViewerComponent({ className = '' }: MapViewerProps) {
   const [measurements, setMeasurements] = useState<Array<{ type: string; value: string }>>([])
   const [coords, setCoords] = useState({ lat: 5.36, lng: -4.01 })
   const [zoom, setZoom] = useState(12)
+  const [loadingContext, setLoadingContext] = useState(false)
+  
+  const contextLayerRef = useRef<any>(null)
 
   // Load Leaflet dynamically
   useEffect(() => {
@@ -207,6 +212,92 @@ export function MapViewerComponent({ className = '' }: MapViewerProps) {
     }
   }, [searchQuery, goToLocation])
 
+  const loadOSMContext = useCallback(async () => {
+    if (!mapRef.current) return
+    setLoadingContext(true)
+    toast.info("Téléchargement du contexte urbain depuis OpenStreetMap...")
+    try {
+      const bounds = mapRef.current.getBounds()
+      const query = `
+        [out:json];
+        (
+          way["building"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+          way["highway"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});
+        );
+        out body;
+        >;
+        out skel qt;
+      `
+      
+      const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        body: query
+      })
+      
+      if (!response.ok) throw new Error('Erreur API OSM')
+      const data = await response.json()
+      
+      const osmtogeojson = (await import('osmtogeojson')).default
+      const geojson = osmtogeojson(data)
+      
+      const L = (window as any).L
+      if (contextLayerRef.current) {
+        contextLayerRef.current.remove()
+      }
+      
+      contextLayerRef.current = L.geoJSON(geojson, {
+        style: function (feature: any) {
+          if (feature.properties?.building) {
+            return { color: '#ef4444', weight: 1, fillOpacity: 0.5 };
+          }
+          if (feature.properties?.highway) {
+            return { color: '#eab308', weight: 3, fillOpacity: 0.8 };
+          }
+          return { color: '#3b82f6', weight: 1 };
+        }
+      }).addTo(mapRef.current)
+      
+      toast.success(`Contexte urbain (${data.elements?.length || 0} entités) chargé avec succès`)
+    } catch(err) {
+      console.error(err)
+      toast.error('Impossible de charger le contexte OSM')
+    } finally {
+      setLoadingContext(false)
+    }
+  }, [])
+
+  const getElevationProfile = useCallback(async (points: [number, number][]) => {
+    try {
+      setLoadingContext(true)
+      const locations = points.map(p => ({ latitude: p[0], longitude: p[1] }))
+      const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ locations })
+      })
+      
+      if (!response.ok) throw new Error('API Topographie inaccessible')
+      const data = await response.json()
+      
+      const altitudes = data.results.map((r: any) => r.elevation)
+      const minAlt = Math.min(...altitudes)
+      const maxAlt = Math.max(...altitudes)
+      
+      setMeasurements(prev => [...prev, { 
+        type: 'Topographie', 
+        value: `Δ ${maxAlt - minAlt}m (Min: ${minAlt}m, Max: ${maxAlt}m)` 
+      }])
+      toast.success(`Profil topographique généré`)
+    } catch(e) {
+      toast.error("Erreur d'accès à l'API de topographie")
+    } finally {
+      setLoadingContext(false)
+    }
+  }, [])
+
   // Drawing handlers
   const startDrawing = useCallback((mode: string) => {
     const L = (window as any).L
@@ -245,6 +336,8 @@ export function MapViewerComponent({ className = '' }: MapViewerProps) {
           distance += mapRef.current!.distance(points[i], points[i + 1])
         }
         setMeasurements(prev => [...prev, { type: 'Distance', value: `${(distance / 1000).toFixed(2)} km` }])
+        // Fetch topograhpy profile
+        getElevationProfile(points)
       } else if (mode === 'polygon' && points.length >= 3) {
         if (tempLine) tempLine.remove()
         L.polygon(points, { color: '#14b8a6', weight: 3, fillOpacity: 0.3 }).addTo(drawnItemsRef.current!)
@@ -323,11 +416,11 @@ export function MapViewerComponent({ className = '' }: MapViewerProps) {
       <div ref={mapContainerRef} className="w-full h-full rounded-lg" />
 
       {/* Loading overlay */}
-      {!isLoaded && (
-        <div className="absolute inset-0 bg-slate-900 flex items-center justify-center rounded-lg">
-          <div className="text-center text-white">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-            <p>Chargement de la carte...</p>
+      {(!isLoaded || loadingContext) && (
+        <div className="absolute inset-0 bg-slate-900/80 flex items-center justify-center rounded-lg z-[2000]">
+          <div className="text-center text-white p-4 rounded-xl backdrop-blur bg-black/40">
+            <Loader2 className="h-10 w-10 animate-spin mx-auto mb-4 text-primary" />
+            <p className="font-semibold text-lg">{!isLoaded ? 'Chargement de la carte...' : 'Analyse spatiale en cours...'}</p>
           </div>
         </div>
       )}
@@ -384,7 +477,7 @@ export function MapViewerComponent({ className = '' }: MapViewerProps) {
       </div>
 
       {/* Drawing tools */}
-      <div className="absolute top-20 right-4 z-[1000]">
+      <div className="absolute top-20 right-4 z-[1000] flex flex-col gap-2">
         <Card className="p-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur">
           <div className="flex flex-col gap-1">
             <Button
@@ -399,9 +492,9 @@ export function MapViewerComponent({ className = '' }: MapViewerProps) {
               variant={drawingMode === 'polyline' ? 'default' : 'ghost'}
               size="icon"
               onClick={() => startDrawing('polyline')}
-              title="Ligne"
+              title="Ligne (Génère un profil topo)"
             >
-              <Pencil className="h-4 w-4" />
+              <TrendingUp className="h-4 w-4" />
             </Button>
             <Button
               variant={drawingMode === 'polygon' ? 'default' : 'ghost'}
@@ -422,6 +515,16 @@ export function MapViewerComponent({ className = '' }: MapViewerProps) {
             </Button>
           </div>
         </Card>
+        
+        <div className="flex flex-col gap-1 mt-2">
+          <Button 
+            onClick={loadOSMContext} 
+            className="shadow-lg bg-blue-600 hover:bg-blue-700 text-white rounded-full w-10 h-10 p-0 flex items-center justify-center"
+            title="Charger les bâtiments et routes 3D (OSM)"
+          >
+            <Building2 className="h-5 w-5" />
+          </Button>
+        </div>
       </div>
 
       {/* Import/Export */}

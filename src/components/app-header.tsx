@@ -43,8 +43,9 @@ export function AppHeader() {
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('geo_e_user')
-    router.push('/login')
-  }, [router])
+    // Utiliser un real-redirect pour vider entièrement la RAM (Zustand & Fichiers Potree)
+    window.location.href = '/'
+  }, [])
 
   return (
     <header className="h-16 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">

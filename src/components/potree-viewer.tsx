@@ -24,6 +24,10 @@ import { toast } from 'sonner'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
+// Loaders.gl for LAZ/LAS support
+import { parse } from '@loaders.gl/core'
+import { LASLoader } from '@loaders.gl/las'
+
 interface PointCloudViewerProps {
   className?: string
   height?: string
@@ -107,72 +111,66 @@ function generateDemoPointCloud(sceneType: string): { positions: Float32Array; c
   return { positions, colors, count }
 }
 
-// Parse LAS/LAZ file header and data
-async function parsePointCloudFile(url: string): Promise<{ positions: Float32Array; colors: Float32Array; count: number }> {
-  const response = await fetch(url)
-  const arrayBuffer = await response.arrayBuffer()
-  const dataView = new DataView(arrayBuffer)
+// Parse LAS/LAZ file using loaders.gl
+async function parsePointCloudFile(
+  url: string,
+  onProgress?: (progress: number) => void
+): Promise<{ positions: Float32Array; colors: Float32Array; count: number }> {
+  if (onProgress) onProgress(5)
   
-  // Check if it's a LAS file (magic number "LASF")
-  const magic = String.fromCharCode(
-    dataView.getUint8(0),
-    dataView.getUint8(1),
-    dataView.getUint8(2),
-    dataView.getUint8(3)
-  )
+  // Fetch file locally to get ArrayBuffer to avoid Worker fetch issues
+  const response = await fetch(url);
+  const arrayBuffer = await response.arrayBuffer();
   
-  if (magic !== 'LASF') {
-    throw new Error('Format non supporté. Utilisez un fichier LAS/LAZ valide.')
+  if (onProgress) onProgress(30);
+
+  // Determine a safe decimation factor to avoid Out Of Memory (OOM) errors in WebAssembly
+  // LAZ is highly compressed. 1MB compressed ~ 300,000 points.
+  // We want to limit the decoded points to ~1 million to avoid WebAssembly OOM
+  const fileSizeMb = arrayBuffer.byteLength / (1024 * 1024);
+  const skipFactor = Math.max(1, Math.floor(fileSizeMb / 2));
+  
+  // Parse manually using Array Buffer
+  const data = await parse(arrayBuffer, LASLoader, {
+    las: { skip: skipFactor },
+    worker: false // Run on main thread to disable MEMFS IPC issues
+  });
+
+  if (onProgress) onProgress(85)
+
+  const positionBuffer = data.attributes?.POSITION?.value;
+  if (!positionBuffer) {
+    throw new Error('Fichier LAZ/LAS invalide: Pas de positions.');
   }
+
+  // Loaders.gl LASLoader limits points (or loads all) - check its length
+  // We limit to 2 million points for browser safety but load() usually handles whole file
+  // Actually, we'll keep the whole file if small, or apply a decimation step
+  const totalCount = positionBuffer.length / 3;
+  const maxPoints = 2000000;
+  const step = Math.max(1, Math.floor(totalCount / maxPoints));
+  const count = Math.min(totalCount, maxPoints);
   
-  // Parse LAS header
-  const header = {
-    fileSignature: magic,
-    versionMajor: dataView.getUint8(24),
-    versionMinor: dataView.getUint8(25),
-    headerSize: dataView.getUint16(94, true),
-    offsetToPointData: dataView.getUint32(96, true),
-    numberOfPoints: dataView.getUint32(107, true),
-    pointDataRecordLength: dataView.getUint16(94 + 6, true),
-    scale: {
-      x: dataView.getFloat64(96 + 8, true),
-      y: dataView.getFloat64(96 + 16, true),
-      z: dataView.getFloat64(96 + 24, true),
-    },
-    offset: {
-      x: dataView.getFloat64(96 + 32, true),
-      y: dataView.getFloat64(96 + 40, true),
-      z: dataView.getFloat64(96 + 48, true),
-    },
-  }
-  
-  // Limit points for performance
-  const maxPoints = 500000
-  const step = Math.max(1, Math.floor(header.numberOfPoints / maxPoints))
-  const count = Math.min(header.numberOfPoints, maxPoints)
-  
-  const positions = new Float32Array(count * 3)
-  const colors = new Float32Array(count * 3)
-  
-  // Find min/max for normalization
+  const positions = new Float32Array(count * 3);
+  const colors = new Float32Array(count * 3);
+
   let minX = Infinity, maxX = -Infinity
   let minY = Infinity, maxY = -Infinity
   let minZ = Infinity, maxZ = -Infinity
-  
-  const pointOffset = header.offsetToPointData
-  const recordLength = header.pointDataRecordLength || 20
-  
-  // First pass: find bounds
+
+  const CHUNK_SIZE = 50000;
+
+  // Pass 1: Find bounds
   for (let i = 0; i < count; i++) {
-    const pointIndex = i * step
-    const byteOffset = pointOffset + pointIndex * recordLength
-    
-    if (byteOffset + 12 > arrayBuffer.byteLength) break
-    
-    const x = dataView.getInt32(byteOffset, true) * header.scale.x + header.offset.x
-    const y = dataView.getInt32(byteOffset + 4, true) * header.scale.y + header.offset.y
-    const z = dataView.getInt32(byteOffset + 8, true) * header.scale.z + header.offset.z
-    
+    if (i > 0 && i % CHUNK_SIZE === 0) {
+      if (onProgress) onProgress(85 + Math.round((i / count) * 5));
+      await new Promise(r => setTimeout(r, 0));
+    }
+    const idx = (i * step) * 3;
+    const x = positionBuffer[idx];
+    const y = positionBuffer[idx + 1];
+    const z = positionBuffer[idx + 2];
+
     minX = Math.min(minX, x)
     maxX = Math.max(maxX, x)
     minY = Math.min(minY, y)
@@ -180,60 +178,57 @@ async function parsePointCloudFile(url: string): Promise<{ positions: Float32Arr
     minZ = Math.min(minZ, z)
     maxZ = Math.max(maxZ, z)
   }
-  
+
   const centerX = (minX + maxX) / 2
   const centerY = (minY + maxY) / 2
   const centerZ = (minZ + maxZ) / 2
-  const scale = Math.max(maxX - minX, maxY - minY, maxZ - minZ) / 100
-  
-  // Second pass: read points with color
+  const scale = Math.max(maxX - minX, maxY - minY, maxZ - minZ) / 100 || 1;
+
+  const colorBuffer = data.attributes?.COLOR_0?.value;
+  const is16BitColor = colorBuffer instanceof Uint16Array;
+  // Determine if it's RGB (3) or RGBA (4)
+  const colorChannels = colorBuffer ? Math.round(colorBuffer.length / totalCount) : 0;
+
+  // Pass 2: Transfer and normalize
   for (let i = 0; i < count; i++) {
-    const pointIndex = i * step
-    const byteOffset = pointOffset + pointIndex * recordLength
-    
-    if (byteOffset + 12 > arrayBuffer.byteLength) break
-    
-    const x = (dataView.getInt32(byteOffset, true) * header.scale.x + header.offset.x - centerX) / scale
-    const y = (dataView.getInt32(byteOffset + 4, true) * header.scale.y + header.offset.y - centerY) / scale
-    const z = (dataView.getInt32(byteOffset + 8, true) * header.scale.z + header.offset.z - centerZ) / scale
-    
-    positions[i * 3] = x
-    positions[i * 3 + 1] = z
-    positions[i * 3 + 2] = y
-    
-    // Try to read RGB color if available (after position + intensity)
-    let r = 0.5, g = 0.5, b = 0.5
-    
-    if (byteOffset + 20 + 6 <= arrayBuffer.byteLength) {
-      // Try reading RGB (format 2 or 3)
-      const red = dataView.getUint16(byteOffset + 20, true)
-      const green = dataView.getUint16(byteOffset + 22, true)
-      const blue = dataView.getUint16(byteOffset + 24, true)
-      
-      if (red > 0 || green > 0 || blue > 0) {
-        r = red / 65535
-        g = green / 65535
-        b = blue / 65535
-      } else {
-        // Use height-based coloring
-        const normalizedZ = (z - minZ / scale) / ((maxZ - minZ) / scale)
-        r = normalizedZ * 0.8
-        g = 0.6 - normalizedZ * 0.4
-        b = normalizedZ * 0.2 + 0.2
-      }
-    } else {
-      // Use height-based coloring
-      const normalizedZ = (z - minZ / scale) / ((maxZ - minZ) / scale)
-      r = normalizedZ * 0.8
-      g = 0.6 - normalizedZ * 0.4
-      b = normalizedZ * 0.2 + 0.2
+    if (i > 0 && i % CHUNK_SIZE === 0) {
+      if (onProgress) onProgress(90 + Math.round((i / count) * 10));
+      await new Promise(r => setTimeout(r, 0));
     }
     
-    colors[i * 3] = r
-    colors[i * 3 + 1] = g
-    colors[i * 3 + 2] = b
+    const idx = i * step;
+    const posIdx = idx * 3;
+    
+    const ox = positionBuffer[posIdx]
+    const oy = positionBuffer[posIdx + 1]
+    const oz = positionBuffer[posIdx + 2]
+
+    // Center and scale
+    const x = (ox - centerX) / scale
+    const y = (oy - centerY) / scale
+    const z = (oz - centerZ) / scale
+
+    // Y up in Three.js
+    positions[i * 3] = x
+    positions[i * 3 + 1] = z // Swap Y and Z
+    positions[i * 3 + 2] = y
+
+    if (colorBuffer && colorChannels > 0) {
+      const colIdx = idx * colorChannels;
+      const divider = is16BitColor ? 65535 : 255;
+      colors[i * 3] = colorBuffer[colIdx] / divider;
+      colors[i * 3 + 1] = colorBuffer[colIdx + 1] / divider;
+      colors[i * 3 + 2] = colorBuffer[colIdx + 2] / divider;
+    } else {
+      // Use height-based coloring if no colors available
+      const normalizedZ = (oz - minZ) / (maxZ - minZ || 1)
+      colors[i * 3] = normalizedZ * 0.8
+      colors[i * 3 + 1] = 0.6 - normalizedZ * 0.4
+      colors[i * 3 + 2] = normalizedZ * 0.2 + 0.2
+    }
   }
-  
+
+  if (onProgress) onProgress(100);
   return { positions, colors, count }
 }
 
@@ -252,8 +247,10 @@ export function PotreeViewerComponent({
   const controlsRef = useRef<OrbitControls | null>(null)
   const pointCloudRef = useRef<THREE.Points | null>(null)
   const animationIdRef = useRef<number | null>(null)
+  const loadedUrlRef = useRef<string | null | undefined>('__initial__')
   
   const [isLoading, setIsLoading] = useState(true)
+  const [loadProgress, setLoadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [pointSize, setPointSize] = useState(2)
   const [activeTool, setActiveTool] = useState<string | null>(null)
@@ -359,6 +356,7 @@ export function PotreeViewerComponent({
     }
 
     setIsLoading(true)
+    setLoadProgress(0)
     setError(null)
 
     try {
@@ -368,7 +366,7 @@ export function PotreeViewerComponent({
 
       if (url) {
         // Load real file
-        const result = await parsePointCloudFile(url)
+        const result = await parsePointCloudFile(url, setLoadProgress)
         positions = result.positions
         colors = result.colors
         count = result.count
@@ -421,11 +419,14 @@ export function PotreeViewerComponent({
 
   // Load file when URL changes
   useEffect(() => {
-    if (!isLoading && sceneRef.current) {
+    if (isLoading || !sceneRef.current) return;
+    
+    if (loadedUrlRef.current !== fileUrl) {
+      loadedUrlRef.current = fileUrl;
       if (fileUrl) {
-        loadPointCloud(fileUrl)
+        loadPointCloud(fileUrl);
       } else {
-        loadPointCloud(null, 'terrain')
+        loadPointCloud(null, 'terrain');
       }
     }
   }, [isLoading, fileUrl, loadPointCloud])
@@ -512,6 +513,25 @@ export function PotreeViewerComponent({
     )
   }
 
+  // Inject IFRAME here if the URL is an official Potree HTML page generated by the backend
+  if (fileUrl && (fileUrl.includes('.html') || fileUrl.includes('/potree/'))) {
+    return (
+      <div className={`relative w-full overflow-hidden rounded-lg ${className}`} style={{ height }}>
+        <iframe
+          src={fileUrl}
+          className="absolute inset-0 w-full h-full border-0 z-10"
+          title="Potree Web Desktop"
+          allowFullScreen
+        />
+        <div className="absolute bottom-4 right-4 z-20 pointer-events-none">
+          <Badge variant="default" className="bg-slate-900/80 text-primary border border-primary/20 shadow-xl backdrop-blur">
+             ⚡ Moteur Potree Intégré
+          </Badge>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`relative ${className}`} style={{ height }}>
       {/* Three.js container */}
@@ -522,10 +542,21 @@ export function PotreeViewerComponent({
 
       {/* Loading overlay */}
       {isLoading && (
-        <div className="absolute inset-0 bg-slate-900/80 flex items-center justify-center rounded-lg z-10">
-          <div className="text-center text-white">
+        <div className="absolute inset-0 bg-slate-900/80 flex items-center justify-center rounded-lg z-10 w-full h-full">
+          <div className="text-center text-white w-64 max-w-[80%]">
             <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-            <p>{fileUrl ? 'Chargement du fichier...' : 'Chargement...'}</p>
+            <p className="mb-2">{fileUrl ? 'Chargement du fichier...' : 'Chargement...'}</p>
+            {fileUrl && (
+              <>
+                <div className="w-full bg-slate-700/50 h-2 rounded-full overflow-hidden mt-4">
+                  <div 
+                    className="bg-primary h-full transition-all duration-300 ease-out"
+                    style={{ width: `${loadProgress}%` }}
+                  />
+                </div>
+                <p className="text-xs text-slate-400 mt-2 text-right">{loadProgress}%</p>
+              </>
+            )}
           </div>
         </div>
       )}

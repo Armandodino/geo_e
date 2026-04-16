@@ -15,6 +15,7 @@ import {
   HelpCircle,
   ChevronLeft,
   ChevronRight,
+  LogOut,
 } from 'lucide-react'
 import { useState } from 'react'
 import Image from 'next/image'
@@ -58,11 +59,24 @@ const bottomItems = [
     href: '/dashboard/help',
     icon: HelpCircle,
   },
+  {
+    title: 'Déconnexion',
+    href: '#logout',
+    icon: LogOut,
+  },
 ]
 
 export function AppSidebar() {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
+
+  const handleLogoutClick = (e: React.MouseEvent, href: string) => {
+    if (href === '#logout') {
+      e.preventDefault()
+      localStorage.removeItem('geo_e_user')
+      window.location.href = '/' // Hard reload to clear RAM
+    }
+  }
 
   return (
     <div
@@ -128,7 +142,7 @@ export function AppSidebar() {
         {bottomItems.map((item) => {
           const isActive = pathname === item.href
           return (
-            <Link key={item.href} href={item.href}>
+            <Link key={item.href} href={item.href} onClick={(e) => handleLogoutClick(e, item.href)}>
               <Button
                 variant={isActive ? 'secondary' : 'ghost'}
                 className={cn(

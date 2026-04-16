@@ -88,13 +88,14 @@ export function FileUpload({
   const [uploadingFiles, setUploadingFiles] = useState<Array<{
     name: string
     progress: number
-    status: 'uploading' | 'analyzing' | 'success' | 'error'
+    status: 'uploading' | 'analyzing' | 'converting' | 'success' | 'error'
     error?: string
     analysisSummary?: string
   }>>([])
   
   const addFile = useFileStore((state) => state.addFile)
   const updateFileAnalysis = useFileStore((state) => state.updateFileAnalysis)
+  const updateFile = useFileStore((state) => state.updateFile)
 
   const getAcceptedExtensions = useCallback(() => {
     if (!acceptedTypes) return undefined
@@ -178,6 +179,73 @@ export function FileUpload({
           } : f
         )
       )
+      
+      // POTREE ENGINE: Process ALL point clouds via the heavy C++ converter
+      if (geoFile.type === 'las' || geoFile.type === 'laz') {
+        setUploadingFiles((prev) =>
+          prev.map((f, idx) =>
+            idx === index ? { 
+              ...f, 
+              status: 'converting'
+            } : f
+          )
+        )
+        // Simulate a 4s processing time
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          
+          const uploadRes = await fetch('/api/process-pointcloud', {
+            method: 'POST',
+            body: formData
+          });
+          
+          if (!uploadRes.ok) {
+            const errResult = await uploadRes.json().catch(() => ({}));
+            throw new Error(errResult.error || `Erreur serveur HTTP ${uploadRes.status}: La taille du fichier dépasse peut-être la limite du serveur Next.js`);
+          }
+          
+          const processResult = await uploadRes.json();
+          geoFile.url = processResult.url; // Replace heavy blob URL with optimized static URL
+          geoFile.size = processResult.processedSize;
+          
+          updateFile(geoFile.id, {
+             url: processResult.url,
+             size: processResult.processedSize
+          });
+          updateFileAnalysis(geoFile.id, {
+             ...geoFile.analysis,
+             status: 'completed',
+             fileSize: processResult.processedSize
+          });
+          
+        } catch(err: any) {
+          console.error('Python pipe failed', err);
+          
+          // Stop execution and show error!
+          setUploadingFiles((prev) =>
+            prev.map((f, idx) =>
+              idx === index ? { 
+                ...f, 
+                status: 'error',
+                error: err.message
+              } : f
+            )
+          );
+          toast.error("Le traitement serveur a échoué: " + err.message);
+          window.alert("DIAGNOSTIC ERREUR CRITIQUE: \n\n" + err.message + "\n\nEnvoyez-moi ce message exact !");
+          return; // STOP execution!!
+        }
+        
+        setUploadingFiles((prev) =>
+          prev.map((f, idx) =>
+            idx === index ? { 
+              ...f, 
+              status: 'success'
+            } : f
+          )
+        )
+      }
       
       // Callback
       if (onAnalysisComplete) {
@@ -297,6 +365,13 @@ export function FileUpload({
             Analyse
           </Badge>
         )
+      case 'converting':
+        return (
+          <Badge variant="default" className="bg-purple-500">
+            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+            Conversion Cloud
+          </Badge>
+        )
       case 'success':
         return <Badge variant="default" className="bg-green-500">Terminé</Badge>
       case 'error':
@@ -388,7 +463,7 @@ export function FileUpload({
                           {file.status === 'error' && (
                             <AlertCircle className="h-5 w-5 text-destructive" />
                           )}
-                          {(file.status === 'uploading' || file.status === 'analyzing') && (
+                          {(file.status === 'uploading' || file.status === 'analyzing' || file.status === 'converting') && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -404,6 +479,12 @@ export function FileUpload({
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Loader2 className="h-3 w-3 animate-spin" />
                           Analyse des données géospatiales en cours...
+                        </div>
+                      )}
+                      {file.status === 'converting' && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground text-purple-400">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Génération des tuiles 3D (Octree) via le moteur serveur...
                         </div>
                       )}
                       {(file.status === 'uploading') && (

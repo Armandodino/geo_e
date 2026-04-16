@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { useToast } from '@/hooks/use-toast'
-import { Loader2, Mail, Lock, ArrowLeft } from 'lucide-react'
+import { Loader2, Mail, Lock, ArrowLeft, User } from 'lucide-react'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -24,13 +24,24 @@ export default function LoginPage() {
     e.preventDefault()
     setIsLoading(true)
 
+    // Logique stricte d'authentification demandée
+    if (email !== 'konin' || password !== 'test2026') {
+      toast({
+        variant: "destructive",
+        title: 'Erreur',
+        description: 'Identifiants incorrects',
+      })
+      setIsLoading(false)
+      return
+    }
+
     // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    await new Promise(resolve => setTimeout(resolve, 500))
 
     // Store user session in localStorage (demo)
     localStorage.setItem('geo_e_user', JSON.stringify({
-      email,
-      name: email.split('@')[0],
+      email: 'konin',
+      name: 'Konin',
       loggedIn: true
     }))
 
@@ -87,13 +98,13 @@ export default function LoginPage() {
             <form onSubmit={handleLogin}>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">Identifiant (ID)</Label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       id="email"
-                      type="email"
-                      placeholder="votre@email.com"
+                      type="text"
+                      placeholder="Votre identifiant"
                       className="pl-10"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
