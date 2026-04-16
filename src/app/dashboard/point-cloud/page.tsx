@@ -373,6 +373,7 @@ function DataPanel({
 
             {/* Upload */}
             <div className="mt-auto pt-2 border-t">
+              <p className="text-[10px] text-muted-foreground mb-1 px-1">LAS, LAZ (max 500 Mo)</p>
               <CompactFileUpload
                 acceptedTypes={['.las', '.laz']}
                 onFileUpload={(file) => {
