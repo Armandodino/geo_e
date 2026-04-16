@@ -18,9 +18,10 @@ import {
   MapPin,
   Eye,
   EyeOff,
+  Upload,
 } from 'lucide-react'
-import { FileUpload } from '@/components/file-upload'
-import { useFileStore, formatFileSize, type GeoFile } from '@/lib/file-store'
+import { useFileStore, formatFileSize, detectFileType, type GeoFile } from '@/lib/file-store'
+import { analyzeFile } from '@/lib/file-analyzer'
 import { toast } from 'sonner'
 
 // Dynamic import for 3D viewer to avoid SSR
@@ -38,6 +39,89 @@ const PotreeViewer = dynamic(
     ),
   }
 )
+
+// Compact file upload component
+function CompactFileUpload({ 
+  acceptedTypes,
+  onFileUpload,
+  maxSize = 500 * 1024 * 1024
+}: { 
+  acceptedTypes?: string[]
+  onFileUpload?: (file: GeoFile) => void
+  maxSize?: number
+}) {
+  const fileInputRef = useState<HTMLInputElement | null>(null)[0]
+  const [isUploading, setIsUploading] = useState(false)
+  const addFile = useFileStore((state) => state.addFile)
+  const updateFileAnalysis = useFileStore((state) => state.updateFileAnalysis)
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    setIsUploading(true)
+    
+    for (const file of Array.from(files)) {
+      try {
+        const fileType = detectFileType(file.name)
+        const dataUrl = URL.createObjectURL(file)
+        
+        const geoFile: GeoFile = {
+          name: file.name,
+          type: fileType,
+          size: file.size,
+          data: null,
+          url: dataUrl,
+          metadata: {},
+        }
+        
+        const id = addFile(geoFile)
+        geoFile.id = id
+        
+        // Analyze
+        try {
+          const analysisResult = await analyzeFile(file, fileType, null, dataUrl)
+          updateFileAnalysis(id, {
+            ...analysisResult,
+            status: 'completed',
+            analyzedAt: new Date()
+          })
+        } catch {
+          // Skip analysis errors
+        }
+        
+        if (onFileUpload) {
+          onFileUpload({ ...geoFile, id })
+        }
+        
+        toast.success(`"${file.name}" importé`)
+      } catch (error) {
+        toast.error(`Erreur: ${file.name}`)
+      }
+    }
+    
+    setIsUploading(false)
+    e.target.value = ''
+  }
+
+  return (
+    <label className="flex items-center justify-center gap-2 w-full p-2 rounded-lg border border-dashed border-border hover:border-primary/50 hover:bg-muted/50 cursor-pointer transition-colors text-xs text-muted-foreground hover:text-foreground">
+      <input
+        type="file"
+        accept={acceptedTypes?.join(',')}
+        multiple
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+      {isUploading ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <Upload className="h-3 w-3" />
+      )}
+      <span>{isUploading ? 'Import...' : 'Importer'}</span>
+    </label>
+  )
+}
 
 // Demo point cloud data with thumbnails
 const DEMO_POINT_CLOUDS = [
@@ -289,13 +373,11 @@ function DataPanel({
 
             {/* Upload */}
             <div className="mt-auto pt-2 border-t">
-              <FileUpload
-                acceptedTypes={['las', 'laz']}
+              <CompactFileUpload
+                acceptedTypes={['.las', '.laz']}
                 onFileUpload={(file) => {
                   toast.success(`Fichier "${file.name}" importé`)
                 }}
-                multiple
-                maxSize={500 * 1024 * 1024}
               />
             </div>
           </motion.div>
