@@ -130,11 +130,7 @@ export default function LoginPage() {
                 </div>
               </div>
               
-              {/* Authenticity notice */}
-              <div className="mt-6 bg-primary/5 border border-primary/20 rounded-lg p-3 text-xs text-center text-muted-foreground flex items-center justify-center gap-2">
-                <Lock className="h-3 w-3 text-primary" />
-                <span>Espace sécurisé - Accès réservé aux employés</span>
-              </div>
+
             </CardContent>
             <CardFooter className="flex flex-col gap-4 pb-8">
               <Button 
