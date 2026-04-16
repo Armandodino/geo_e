@@ -13,19 +13,26 @@ export default function Home() {
     }}>
       <div style={{
         position: 'relative',
-        width: '6rem',
-        height: '6rem'
+        width: '12rem',
+        height: 'auto'
       }}>
         <img
-          src="/logo.svg"
-          alt="Z.ai Logo"
+          src="/logo.png"
+          alt="Geo E Logo"
           style={{
             width: '100%',
-            height: '100%',
+            height: 'auto',
             objectFit: 'contain'
           }}
         />
       </div>
+      <h1 style={{
+        fontSize: '2rem',
+        fontWeight: 'bold',
+        color: '#333'
+      }}>
+        Geo E
+      </h1>
     </div>
   )
 }
