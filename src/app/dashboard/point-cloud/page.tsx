@@ -122,7 +122,7 @@ function StatsOverlay({ data }: { data: typeof DEMO_POINT_CLOUDS[0] | null }) {
   )
 }
 
-// Thumbnail card component
+// Thumbnail card component - Shows data only, no logo
 function ThumbnailCard({ 
   data, 
   isSelected, 
@@ -138,39 +138,61 @@ function ThumbnailCard({
       className={`relative w-full rounded-xl overflow-hidden transition-all ${
         isSelected 
           ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' 
-          : 'hover:ring-2 hover:ring-primary/50'
+          : 'hover:ring-2 hover:ring-primary/50 border border-border'
       }`}
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
     >
-      {/* Thumbnail background */}
-      <div className={`aspect-video bg-gradient-to-br ${data.color} relative`}>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <data.icon className="h-12 w-12 text-white/80" />
+      {/* Data card - No icon, just information */}
+      <div className="p-4 bg-card text-left">
+        <div className="flex items-start justify-between mb-2">
+          <p className="font-semibold truncate flex-1">{data.name}</p>
+          {isSelected && (
+            <div className="bg-primary rounded-full p-1 ml-2 flex-shrink-0">
+              <Eye className="h-3 w-3 text-primary-foreground" />
+            </div>
+          )}
         </div>
-        {/* Selection indicator */}
-        {isSelected && (
-          <div className="absolute top-2 right-2 bg-primary rounded-full p-1">
-            <Eye className="h-3 w-3 text-primary-foreground" />
+        
+        {/* Description */}
+        <p className="text-xs text-muted-foreground mb-3">{data.description}</p>
+        
+        {/* Data grid */}
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="flex items-center gap-1.5">
+            <Database className="h-3 w-3 text-muted-foreground" />
+            <span className="font-medium">{data.points.toLocaleString()}</span>
+            <span className="text-muted-foreground">pts</span>
           </div>
-        )}
-      </div>
-      
-      {/* Info */}
-      <div className="p-3 bg-card text-left">
-        <p className="font-medium text-sm truncate">{data.name}</p>
-        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-          <Database className="h-3 w-3" />
-          <span>{data.points.toLocaleString()} pts</span>
-          <span>•</span>
-          <span>{data.size}</span>
+          <div className="flex items-center gap-1.5">
+            <HardDrive className="h-3 w-3 text-muted-foreground" />
+            <span>{data.size}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <MapPin className="h-3 w-3 text-muted-foreground" />
+            <span>{data.extent}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Mountain className="h-3 w-3 text-muted-foreground" />
+            <span>{data.elevation}</span>
+          </div>
+        </div>
+
+        {/* Quality badge */}
+        <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border">
+          <Badge variant="secondary" className="text-xs">
+            {data.quality}
+          </Badge>
+          <Badge variant="outline" className="text-xs">
+            {data.density}
+          </Badge>
         </div>
       </div>
     </motion.button>
   )
 }
 
-// Uploaded file thumbnail
+// Uploaded file thumbnail - Shows data only
 function FileThumbnail({ 
   file, 
   isSelected, 
@@ -180,16 +202,9 @@ function FileThumbnail({
   isSelected: boolean
   onClick: () => void 
 }) {
-  const getTypeIcon = () => {
-    switch (file.type) {
-      case 'las':
-      case 'laz':
-        return Box
-      default:
-        return FileImage
-    }
+  const getFileType = () => {
+    return file.type.toUpperCase()
   }
-  const Icon = getTypeIcon()
 
   return (
     <motion.button
@@ -197,36 +212,60 @@ function FileThumbnail({
       className={`relative w-full rounded-xl overflow-hidden transition-all ${
         isSelected 
           ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' 
-          : 'hover:ring-2 hover:ring-primary/50'
+          : 'hover:ring-2 hover:ring-primary/50 border border-border'
       }`}
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
     >
-      {/* Thumbnail background */}
-      <div className="aspect-video bg-gradient-to-br from-purple-500 to-pink-600 relative">
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Icon className="h-12 w-12 text-white/80" />
-        </div>
-        {isSelected && (
-          <div className="absolute top-2 right-2 bg-primary rounded-full p-1">
-            <Eye className="h-3 w-3 text-primary-foreground" />
-          </div>
-        )}
-      </div>
-      
-      {/* Info */}
-      <div className="p-3 bg-card text-left">
-        <p className="font-medium text-sm truncate">{file.name}</p>
-        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-          <HardDrive className="h-3 w-3" />
-          <span>{formatFileSize(file.size)}</span>
-          {file.analysis?.pointCloud?.pointCount && (
-            <>
-              <span>•</span>
-              <span>{file.analysis.pointCloud.pointCount.toLocaleString()} pts</span>
-            </>
+      {/* Data card - No icon, just information */}
+      <div className="p-4 bg-card text-left">
+        <div className="flex items-start justify-between mb-2">
+          <p className="font-semibold truncate flex-1">{file.name}</p>
+          {isSelected && (
+            <div className="bg-primary rounded-full p-1 ml-2 flex-shrink-0">
+              <Eye className="h-3 w-3 text-primary-foreground" />
+            </div>
           )}
         </div>
+        
+        {/* File type badge */}
+        <Badge variant="secondary" className="text-xs mb-3">
+          {getFileType()}
+        </Badge>
+        
+        {/* Data grid */}
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="flex items-center gap-1.5">
+            <HardDrive className="h-3 w-3 text-muted-foreground" />
+            <span className="font-medium">{formatFileSize(file.size)}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Calendar className="h-3 w-3 text-muted-foreground" />
+            <span>{new Date(file.uploadedAt).toLocaleDateString('fr-FR')}</span>
+          </div>
+          {file.analysis?.pointCloud?.pointCount && (
+            <div className="flex items-center gap-1.5 col-span-2">
+              <Database className="h-3 w-3 text-muted-foreground" />
+              <span className="font-medium">{file.analysis.pointCloud.pointCount.toLocaleString()}</span>
+              <span className="text-muted-foreground">points</span>
+            </div>
+          )}
+        </div>
+
+        {/* Analysis status */}
+        {file.analysis ? (
+          <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border">
+            <Badge variant="outline" className="text-xs text-green-600 border-green-200">
+              Analysé
+            </Badge>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border">
+            <Badge variant="outline" className="text-xs text-muted-foreground">
+              En attente d'analyse
+            </Badge>
+          </div>
+        )}
       </div>
     </motion.button>
   )
@@ -351,7 +390,7 @@ function DataPanel({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col items-center py-4 gap-4"
+            className="flex flex-col items-center py-4 gap-3"
           >
             <div className="relative">
               <Layers className="h-5 w-5 text-muted-foreground" />
@@ -360,7 +399,8 @@ function DataPanel({
               </Badge>
             </div>
             <div className="w-8 h-px bg-border" />
-            {DEMO_POINT_CLOUDS.slice(0, 2).map((demo) => (
+            {/* Show small data indicators */}
+            {DEMO_POINT_CLOUDS.slice(0, 3).map((demo) => (
               <motion.button
                 key={demo.id}
                 onClick={() => {
@@ -368,13 +408,26 @@ function DataPanel({
                   onSelectFile(null)
                   onToggle()
                 }}
-                className={`w-8 h-8 rounded-lg bg-gradient-to-br ${demo.color} flex items-center justify-center`}
+                className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center text-xs font-bold ${
+                  selectedDemo.id === demo.id && !selectedFile
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border bg-card hover:border-primary/50'
+                }`}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.95 }}
+                title={demo.name}
               >
-                <demo.icon className="h-4 w-4 text-white" />
+                {demo.points >= 60000 ? 'F' : demo.points >= 50000 ? 'T' : 'B'}
               </motion.button>
             ))}
+            {pointCloudFiles.length > 0 && (
+              <>
+                <div className="w-8 h-px bg-border" />
+                <div className="w-8 h-8 rounded-lg border border-border bg-card flex items-center justify-center text-xs">
+                  +{pointCloudFiles.length}
+                </div>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
