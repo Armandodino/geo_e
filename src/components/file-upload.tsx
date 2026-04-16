@@ -206,11 +206,13 @@ export function FileUpload({
           }
           
           const processResult = await uploadRes.json();
+          geoFile.rawUrl = geoFile.url; // Save the raw blob URL
           geoFile.url = processResult.url; // Replace heavy blob URL with optimized static URL
           geoFile.size = processResult.processedSize;
           
           updateFile(geoFile.id, {
              url: processResult.url,
+             rawUrl: geoFile.rawUrl,
              size: processResult.processedSize
           });
           updateFileAnalysis(geoFile.id, {

@@ -87,6 +87,7 @@ export interface GeoFile {
   size: number
   data?: unknown
   url?: string
+  rawUrl?: string
   thumbnail?: string
   metadata?: {
     width?: number

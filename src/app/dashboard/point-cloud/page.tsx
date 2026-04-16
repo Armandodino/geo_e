@@ -19,6 +19,7 @@ import {
   Eye,
   EyeOff,
   Upload,
+  Trash2,
 } from 'lucide-react'
 import { useFileStore, formatFileSize, detectFileType, type GeoFile } from '@/lib/file-store'
 import { analyzeFile } from '@/lib/file-analyzer'
@@ -246,11 +247,13 @@ function ThumbnailCard({
 function FileThumbnail({ 
   file, 
   isSelected, 
-  onClick 
+  onClick,
+  onDelete
 }: { 
   file: GeoFile
   isSelected: boolean
   onClick: () => void 
+  onDelete: (e: React.MouseEvent) => void
 }) {
   return (
     <motion.button
@@ -266,11 +269,22 @@ function FileThumbnail({
       <div className="p-2 text-left">
         <div className="flex items-center justify-between gap-2">
           <p className="font-medium text-sm truncate flex-1">{file.name}</p>
-          {isSelected && (
-            <div className="bg-primary rounded-full p-0.5 flex-shrink-0">
-              <Eye className="h-3 w-3 text-primary-foreground" />
-            </div>
-          )}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {isSelected && (
+              <div className="bg-primary rounded-full p-0.5">
+                <Eye className="h-3 w-3 text-primary-foreground" />
+              </div>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded"
+              onClick={onDelete}
+              title="Supprimer ce fichier"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
         
         {/* Data row - compact */}
@@ -306,6 +320,7 @@ function DataPanel({
   pointCloudFiles: GeoFile[]
   selectedFile: GeoFile | null
   onSelectFile: (file: GeoFile | null) => void
+  onDeleteFile: (e: React.MouseEvent, id: string) => void
 }) {
   return (
     <motion.div
@@ -365,6 +380,7 @@ function DataPanel({
                       file={file}
                       isSelected={selectedFile?.id === file.id}
                       onClick={() => onSelectFile(file)}
+                      onDelete={(e) => onDeleteFile(e, file.id)}
                     />
                   ))}
                 </div>
@@ -522,8 +538,9 @@ export default function PointCloudPage() {
   const [selectedFile, setSelectedFile] = useState<GeoFile | null>(null)
   const [isDataPanelOpen, setIsDataPanelOpen] = useState(true)
   const [isMetadataOpen, setIsMetadataOpen] = useState(true)
+  const [useLightViewer, setUseLightViewer] = useState(false)
   
-  const { files } = useFileStore()
+  const { files, removeFile } = useFileStore()
   const pointCloudFiles = files.filter(f => f.type === 'las' || f.type === 'laz')
 
   // Close metadata panel on mobile
@@ -557,7 +574,10 @@ export default function PointCloudPage() {
             <PotreeViewer 
               className="w-full h-full" 
               fileUrl={selectedFile?.url}
+              rawUrl={selectedFile?.rawUrl}
               fileName={selectedFile?.name}
+              useLightViewer={useLightViewer}
+              onToggleViewer={() => setUseLightViewer(!useLightViewer)}
             />
           </Suspense>
 
@@ -601,6 +621,12 @@ export default function PointCloudPage() {
           pointCloudFiles={pointCloudFiles}
           selectedFile={selectedFile}
           onSelectFile={setSelectedFile}
+          onDeleteFile={(e, id) => {
+            e.stopPropagation();
+            removeFile(id);
+            if (selectedFile?.id === id) setSelectedFile(null);
+            toast.success("Fichier supprimé");
+          }}
         />
       </div>
     </div>
