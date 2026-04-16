@@ -57,18 +57,8 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-background via-background to-secondary/20 relative overflow-hidden p-4">
       
-      {/* Top Navigation */}
-      <div className="absolute top-0 w-full p-6 flex justify-between items-center z-20">
-        <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-          <Image
-            src="/logo.png"
-            alt="Geo E Logo"
-            width={40}
-            height={40}
-            className="h-10 w-auto"
-          />
-          <span className="font-bold text-xl drop-shadow-sm">Geo E</span>
-        </Link>
+      {/* Theme toggle only */}
+      <div className="absolute top-6 right-6 z-20">
         <ThemeToggle />
       </div>
 
@@ -91,10 +81,6 @@ export default function LoginPage() {
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
       >
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold tracking-tight mb-2">Bienvenue sur Geo E</h1>
-          <p className="text-muted-foreground">La plateforme géolocalisée de référence.</p>
-        </div>
 
         <Card className="w-full border-border/50 shadow-2xl backdrop-blur-xl bg-background/80">
           <CardHeader className="space-y-1 pb-4 text-center border-b border-border/10 mb-4">
