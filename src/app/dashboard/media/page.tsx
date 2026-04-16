@@ -1,12 +1,14 @@
 'use client'
 
-import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Separator } from '@/components/ui/separator'
+import { Progress } from '@/components/ui/progress'
 import { 
   FileText, 
   Image, 
@@ -30,20 +32,16 @@ import {
   ZoomOut,
   RotateCw,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  X,
+  Map,
+  AlertCircle,
 } from 'lucide-react'
+import { FileUpload } from '@/components/file-upload'
+import { useFileStore, formatFileSize, type GeoFile } from '@/lib/file-store'
+import { toast } from 'sonner'
 
-const mediaFiles = [
-  { id: 1, name: 'Orthophoto_Abidjan.tif', type: 'geotiff', size: '1.2 GB', date: '2024-01-15', thumbnail: null },
-  { id: 2, name: 'Rapport_Analyse.pdf', type: 'pdf', size: '2.3 MB', date: '2024-01-14', thumbnail: null },
-  { id: 3, name: 'Vue_Aerienne.png', type: 'image', size: '15 MB', date: '2024-01-13', thumbnail: null },
-  { id: 4, name: 'Inspection_Drone.mp4', type: 'video', size: '450 MB', date: '2024-01-12', thumbnail: null },
-  { id: 5, name: 'Carte_Zone.jpg', type: 'image', size: '8 MB', date: '2024-01-11', thumbnail: null },
-  { id: 6, name: 'Documentation.pdf', type: 'pdf', size: '1.5 MB', date: '2024-01-10', thumbnail: null },
-  { id: 7, name: 'Orthophoto_SanPedro.tif', type: 'geotiff', size: '890 MB', date: '2024-01-09', thumbnail: null },
-  { id: 8, name: 'Interview_Expert.mp4', type: 'video', size: '280 MB', date: '2024-01-08', thumbnail: null },
-]
-
+// File type icons and colors
 const getFileIcon = (type: string) => {
   switch (type) {
     case 'pdf':
@@ -73,15 +71,391 @@ const getFileColor = (type: string) => {
   }
 }
 
+// PDF Viewer Component
+function PDFViewer({ url, fileName }: { url: string; fileName: string }) {
+  const [numPages, setNumPages] = useState<number | null>(null)
+  const [pageNumber, setPageNumber] = useState(1)
+  const [scale, setScale] = useState(1.0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const loadPDF = async () => {
+      try {
+        const pdfjsLib = await import('pdfjs-dist')
+        
+        // Set worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
+        
+        const loadingTask = pdfjsLib.getDocument(url)
+        const pdf = await loadingTask.promise
+        setNumPages(pdf.numPages)
+        
+        const page = await pdf.getPage(1)
+        const viewport = page.getViewport({ scale })
+        
+        const canvas = canvasRef.current
+        if (canvas) {
+          const context = canvas.getContext('2d')
+          canvas.height = viewport.height
+          canvas.width = viewport.width
+          
+          const renderContext = {
+            canvasContext: context!,
+            viewport: viewport,
+          }
+          
+          await page.render(renderContext).promise
+        }
+        
+        setLoading(false)
+      } catch (err) {
+        console.error('PDF loading error:', err)
+        setError('Erreur lors du chargement du PDF')
+        setLoading(false)
+      }
+    }
+    
+    loadPDF()
+  }, [url, scale])
+
+  const goToPage = async (page: number) => {
+    if (!numPages || page < 1 || page > numPages) return
+    
+    try {
+      const pdfjsLib = await import('pdfjs-dist')
+      const loadingTask = pdfjsLib.getDocument(url)
+      const pdf = await loadingTask.promise
+      const pdfPage = await pdf.getPage(page)
+      const viewport = pdfPage.getViewport({ scale })
+      
+      const canvas = canvasRef.current
+      if (canvas) {
+        const context = canvas.getContext('2d')
+        canvas.height = viewport.height
+        canvas.width = viewport.width
+        
+        await pdfPage.render({
+          canvasContext: context!,
+          viewport: viewport,
+        }).promise
+      }
+      
+      setPageNumber(page)
+    } catch (err) {
+      console.error('Page navigation error:', err)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-muted rounded-lg">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">Chargement du PDF...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-muted rounded-lg">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 mx-auto mb-2 text-destructive" />
+          <p className="text-sm text-muted-foreground">{error}</p>
+          <Button variant="outline" className="mt-4" asChild>
+            <a href={url} download={fileName}>
+              <Download className="h-4 w-4 mr-2" />
+              Télécharger
+            </a>
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-full h-full flex flex-col">
+      <div className="flex-1 overflow-auto flex justify-center bg-muted/50">
+        <canvas ref={canvasRef} className="max-w-full" />
+      </div>
+      {numPages && (
+        <div className="flex items-center justify-center gap-4 p-4 border-t">
+          <Button variant="outline" size="icon" onClick={() => goToPage(pageNumber - 1)} disabled={pageNumber <= 1}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="text-sm">
+            Page {pageNumber} / {numPages}
+          </span>
+          <Button variant="outline" size="icon" onClick={() => goToPage(pageNumber + 1)} disabled={pageNumber >= numPages}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          <Separator orientation="vertical" className="h-6" />
+          <Button variant="outline" size="icon" onClick={() => setScale(s => Math.max(0.5, s - 0.25))}>
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <span className="text-sm w-12 text-center">{(scale * 100).toFixed(0)}%</span>
+          <Button variant="outline" size="icon" onClick={() => setScale(s => Math.min(3, s + 0.25))}>
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Image Viewer Component
+function ImageViewer({ url, fileName }: { url: string; fileName: string }) {
+  const [scale, setScale] = useState(1)
+  const [rotation, setRotation] = useState(0)
+  const [position, setPosition] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const imageRef = useRef<HTMLImageElement>(null)
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true)
+    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y })
+  }
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return
+    setPosition({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y,
+    })
+  }
+
+  const handleMouseUp = () => {
+    setIsDragging(false)
+  }
+
+  const resetView = () => {
+    setScale(1)
+    setRotation(0)
+    setPosition({ x: 0, y: 0 })
+  }
+
+  return (
+    <div className="w-full h-full flex flex-col">
+      <div 
+        className="flex-1 overflow-hidden bg-muted/50 relative cursor-move"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
+        <div 
+          className="absolute inset-0 flex items-center justify-center"
+          style={{
+            transform: `translate(${position.x}px, ${position.y}px) scale(${scale}) rotate(${rotation}deg)`,
+            transition: isDragging ? 'none' : 'transform 0.2s ease-out',
+          }}
+        >
+          <img
+            ref={imageRef}
+            src={url}
+            alt={fileName}
+            className="max-w-full max-h-full object-contain"
+            draggable={false}
+          />
+        </div>
+      </div>
+      <div className="flex items-center justify-center gap-4 p-4 border-t">
+        <Button variant="outline" size="icon" onClick={() => setScale(s => Math.max(0.25, s - 0.25))}>
+          <ZoomOut className="h-4 w-4" />
+        </Button>
+        <span className="text-sm w-12 text-center">{(scale * 100).toFixed(0)}%</span>
+        <Button variant="outline" size="icon" onClick={() => setScale(s => Math.min(5, s + 0.25))}>
+          <ZoomIn className="h-4 w-4" />
+        </Button>
+        <Separator orientation="vertical" className="h-6" />
+        <Button variant="outline" size="icon" onClick={() => setRotation(r => r - 90)}>
+          <RotateCw className="h-4 w-4" />
+        </Button>
+        <Button variant="outline" size="sm" onClick={resetView}>
+          Réinitialiser
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// Video Viewer Component
+function VideoViewer({ url }: { url: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [isMuted, setIsMuted] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+
+  const togglePlay = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause()
+      } else {
+        videoRef.current.play()
+      }
+      setIsPlaying(!isPlaying)
+    }
+  }
+
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted
+      setIsMuted(!isMuted)
+    }
+  }
+
+  const handleTimeUpdate = () => {
+    if (videoRef.current) {
+      const newTime = videoRef.current.currentTime
+      setCurrentTime(newTime)
+      setProgress((newTime / videoRef.current.duration) * 100)
+    }
+  }
+
+  const handleLoadedMetadata = () => {
+    if (videoRef.current) {
+      setDuration(videoRef.current.duration)
+    }
+  }
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (videoRef.current) {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const percent = (e.clientX - rect.left) / rect.width
+      videoRef.current.currentTime = percent * videoRef.current.duration
+    }
+  }
+
+  const formatTime = (time: number) => {
+    const mins = Math.floor(time / 60)
+    const secs = Math.floor(time % 60)
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  const handleFullscreen = () => {
+    videoRef.current?.requestFullscreen()
+  }
+
+  return (
+    <div className="w-full h-full flex flex-col bg-black rounded-lg overflow-hidden">
+      <video
+        ref={videoRef}
+        src={url}
+        className="flex-1 w-full"
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onEnded={() => setIsPlaying(false)}
+      />
+      <div className="bg-gradient-to-t from-black/80 to-transparent p-4">
+        <div 
+          className="h-1 bg-white/30 rounded-full cursor-pointer mb-3"
+          onClick={handleSeek}
+        >
+          <div className="h-full bg-primary rounded-full" style={{ width: `${progress}%` }} />
+        </div>
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" className="text-white" onClick={togglePlay}>
+            {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+          </Button>
+          <span className="text-white text-sm">
+            {formatTime(currentTime)} / {formatTime(duration)}
+          </span>
+          <div className="flex-1" />
+          <Button variant="ghost" size="icon" className="text-white" onClick={toggleMute}>
+            {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="text-white"
+            onClick={handleFullscreen}
+          >
+            <Maximize className="h-5 w-5" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// GeoTIFF Viewer Component (simplified - shows as image for now)
+function GeoTIFFViewer({ url, fileName }: { url: string; fileName: string }) {
+  const [metadata, setMetadata] = useState<{
+    width?: number
+    height?: number
+    projection?: string
+    bounds?: [number, number, number, number]
+  } | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const loadGeoTIFF = async () => {
+      try {
+        const georaster = await import('georaster')
+        const response = await fetch(url)
+        const arrayBuffer = await response.arrayBuffer()
+        const geoRaster = await georaster.default(arrayBuffer)
+        
+        setMetadata({
+          width: geoRaster.width,
+          height: geoRaster.height,
+          projection: geoRaster.projection,
+          bounds: geoRaster.xmin && geoRaster.ymax ? 
+            [geoRaster.xmin, geoRaster.ymin, geoRaster.xmax, geoRaster.ymax] : 
+            undefined,
+        })
+      } catch (err) {
+        console.error('GeoTIFF loading error:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    loadGeoTIFF()
+  }, [url])
+
+  return (
+    <div className="w-full h-full flex flex-col">
+      <div className="flex-1 flex items-center justify-center bg-muted rounded-lg">
+        <div className="text-center">
+          <Map className="h-16 w-16 mx-auto mb-4 text-primary" />
+          <h3 className="text-lg font-medium mb-2">{fileName}</h3>
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Chargement des métadonnées...</p>
+          ) : metadata && (
+            <div className="text-sm text-muted-foreground space-y-1">
+              <p>Dimensions: {metadata.width} × {metadata.height}</p>
+              {metadata.projection && <p>Projection: {metadata.projection}</p>}
+              {metadata.bounds && (
+                <p>Bounds: [{metadata.bounds.map(b => b.toFixed(2)).join(', ')}]</p>
+              )}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground mt-4">
+            Pour visualiser les GeoTIFF sur une carte, utilisez le module GIS
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function MediaPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedFile, setSelectedFile] = useState<number | null>(null)
+  const [selectedFile, setSelectedFile] = useState<GeoFile | null>(null)
   const [activeTab, setActiveTab] = useState('all')
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [isMuted, setIsMuted] = useState(false)
+  
+  const { files, addFile, removeFile, selectFile } = useFileStore()
 
-  const filteredFiles = mediaFiles.filter(file => {
+  // Filter files based on tab and search
+  const filteredFiles = files.filter(file => {
     const matchesSearch = file.name.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesTab = activeTab === 'all' || 
       (activeTab === 'images' && (file.type === 'image' || file.type === 'geotiff')) ||
@@ -89,6 +463,66 @@ export default function MediaPage() {
       (activeTab === 'documents' && file.type === 'pdf')
     return matchesSearch && matchesTab
   })
+
+  // Handle file upload
+  const handleFileUpload = useCallback((file: GeoFile) => {
+    // File is already added to the store by FileUpload component
+    toast.success(`Fichier "${file.name}" importé`)
+  }, [])
+
+  // Handle file selection
+  const handleSelectFile = useCallback((file: GeoFile) => {
+    setSelectedFile(file)
+    selectFile(file.id)
+  }, [selectFile])
+
+  // Handle file deletion
+  const handleDeleteFile = useCallback((file: GeoFile) => {
+    removeFile(file.id)
+    if (selectedFile?.id === file.id) {
+      setSelectedFile(null)
+    }
+    toast.success('Fichier supprimé')
+  }, [removeFile, selectedFile])
+
+  // Download file
+  const downloadFile = useCallback((file: GeoFile) => {
+    if (file.url) {
+      const a = document.createElement('a')
+      a.href = file.url
+      a.download = file.name
+      a.click()
+    }
+  }, [])
+
+  // Render preview based on file type
+  const renderPreview = () => {
+    if (!selectedFile || !selectedFile.url) return null
+
+    switch (selectedFile.type) {
+      case 'pdf':
+        return <PDFViewer url={selectedFile.url} fileName={selectedFile.name} />
+      case 'image':
+        return <ImageViewer url={selectedFile.url} fileName={selectedFile.name} />
+      case 'video':
+        return <VideoViewer url={selectedFile.url} />
+      case 'geotiff':
+        return <GeoTIFFViewer url={selectedFile.url} fileName={selectedFile.name} />
+      default:
+        return (
+          <div className="w-full h-full flex items-center justify-center bg-muted rounded-lg">
+            <div className="text-center">
+              <File className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+              <p className="text-muted-foreground">Aperçu non disponible pour ce type de fichier</p>
+            </div>
+          </div>
+        )
+    }
+  }
+
+  // Calculate storage stats
+  const totalSize = files.reduce((acc, f) => acc + f.size, 0)
+  const storageUsed = Math.min((totalSize / (10 * 1024 * 1024 * 1024)) * 100, 100) // 10GB limit
 
   return (
     <div className="h-full flex flex-col gap-4">
@@ -113,10 +547,6 @@ export default function MediaPage() {
           <Button variant="outline" size="icon" onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}>
             {viewMode === 'grid' ? <List className="h-4 w-4" /> : <Grid className="h-4 w-4" />}
           </Button>
-          <Button className="gap-2">
-            <Upload className="h-4 w-4" />
-            Importer
-          </Button>
         </div>
       </div>
 
@@ -126,16 +556,24 @@ export default function MediaPage() {
         <Card className="flex-1 flex flex-col min-h-0">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
             <CardHeader className="pb-2">
-              <TabsList>
-                <TabsTrigger value="all">Tous ({mediaFiles.length})</TabsTrigger>
-                <TabsTrigger value="images">Images ({mediaFiles.filter(f => f.type === 'image' || f.type === 'geotiff').length})</TabsTrigger>
-                <TabsTrigger value="videos">Vidéos ({mediaFiles.filter(f => f.type === 'video').length})</TabsTrigger>
-                <TabsTrigger value="documents">Documents ({mediaFiles.filter(f => f.type === 'pdf').length})</TabsTrigger>
-              </TabsList>
+              <div className="flex items-center justify-between">
+                <TabsList>
+                  <TabsTrigger value="all">Tous ({files.length})</TabsTrigger>
+                  <TabsTrigger value="images">Images ({files.filter(f => f.type === 'image' || f.type === 'geotiff').length})</TabsTrigger>
+                  <TabsTrigger value="videos">Vidéos ({files.filter(f => f.type === 'video').length})</TabsTrigger>
+                  <TabsTrigger value="documents">Documents ({files.filter(f => f.type === 'pdf').length})</TabsTrigger>
+                </TabsList>
+              </div>
             </CardHeader>
             <CardContent className="flex-1 overflow-hidden p-0">
               <ScrollArea className="h-full p-4">
-                {viewMode === 'grid' ? (
+                {filteredFiles.length === 0 ? (
+                  <div className="text-center py-12">
+                    <FolderOpen className="h-16 w-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+                    <p className="text-lg font-medium text-muted-foreground">Aucun fichier</p>
+                    <p className="text-sm text-muted-foreground mt-1">Importez des fichiers pour commencer</p>
+                  </div>
+                ) : viewMode === 'grid' ? (
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                     {filteredFiles.map((file) => {
                       const Icon = getFileIcon(file.type)
@@ -143,12 +581,14 @@ export default function MediaPage() {
                       return (
                         <Card 
                           key={file.id}
-                          className={`cursor-pointer hover:shadow-md transition-all ${selectedFile === file.id ? 'ring-2 ring-primary' : ''}`}
-                          onClick={() => setSelectedFile(file.id)}
+                          className={`cursor-pointer hover:shadow-md transition-all ${selectedFile?.id === file.id ? 'ring-2 ring-primary' : ''}`}
+                          onClick={() => handleSelectFile(file)}
                         >
                           <CardContent className="p-4">
-                            <div className="aspect-square bg-muted rounded-lg flex items-center justify-center mb-3">
-                              {file.type === 'video' ? (
+                            <div className="aspect-square bg-muted rounded-lg flex items-center justify-center mb-3 overflow-hidden">
+                              {file.type === 'image' && file.url ? (
+                                <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+                              ) : file.type === 'video' ? (
                                 <div className="relative">
                                   <Icon className={`h-12 w-12 ${color}`} />
                                   <div className="absolute inset-0 flex items-center justify-center">
@@ -163,7 +603,7 @@ export default function MediaPage() {
                             </div>
                             <p className="text-sm font-medium truncate">{file.name}</p>
                             <div className="flex items-center justify-between mt-1">
-                              <span className="text-xs text-muted-foreground">{file.size}</span>
+                              <span className="text-xs text-muted-foreground">{formatFileSize(file.size)}</span>
                               <Badge variant="secondary" className="text-xs uppercase">
                                 {file.type}
                               </Badge>
@@ -181,18 +621,21 @@ export default function MediaPage() {
                       return (
                         <div 
                           key={file.id}
-                          className={`flex items-center gap-4 p-3 rounded-lg cursor-pointer transition-colors ${selectedFile === file.id ? 'bg-primary/10' : 'hover:bg-muted'}`}
-                          onClick={() => setSelectedFile(file.id)}
+                          className={`flex items-center gap-4 p-3 rounded-lg cursor-pointer transition-colors ${selectedFile?.id === file.id ? 'bg-primary/10' : 'hover:bg-muted'}`}
+                          onClick={() => handleSelectFile(file)}
                         >
                           <Icon className={`h-8 w-8 ${color}`} />
                           <div className="flex-1 min-w-0">
                             <p className="font-medium truncate">{file.name}</p>
-                            <p className="text-sm text-muted-foreground">{file.date}</p>
+                            <p className="text-sm text-muted-foreground">{file.createdAt.toLocaleDateString()}</p>
                           </div>
                           <Badge variant="secondary" className="uppercase">{file.type}</Badge>
-                          <span className="text-sm text-muted-foreground">{file.size}</span>
-                          <Button variant="ghost" size="icon">
-                            <MoreVertical className="h-4 w-4" />
+                          <span className="text-sm text-muted-foreground">{formatFileSize(file.size)}</span>
+                          <Button variant="ghost" size="icon" onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteFile(file)
+                          }}>
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       )
@@ -205,139 +648,86 @@ export default function MediaPage() {
         </Card>
 
         {/* Preview panel */}
-        {selectedFile && (
-          <Card className="w-80 flex flex-col">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Aperçu</CardTitle>
+        <Card className="w-96 flex flex-col">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">
+                {selectedFile ? 'Aperçu' : 'Importer'}
+              </CardTitle>
+              {selectedFile && (
                 <Button variant="ghost" size="icon" onClick={() => setSelectedFile(null)}>
-                  ×
+                  <X className="h-4 w-4" />
                 </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="flex-1 flex flex-col gap-4">
-              {/* Preview area */}
-              <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
-                {(() => {
-                  const file = mediaFiles.find(f => f.id === selectedFile)
-                  if (!file) return null
-                  const Icon = getFileIcon(file.type)
-                  const color = getFileColor(file.type)
-                  
-                  if (file.type === 'video') {
-                    return (
-                      <div className="relative w-full h-full bg-slate-900 rounded-lg flex items-center justify-center">
-                        <div className="text-center text-white">
-                          <Video className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                          <p className="text-sm text-white/70">Aperçu vidéo</p>
-                        </div>
-                        {/* Video controls overlay */}
-                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-                          <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-white" onClick={() => setIsPlaying(!isPlaying)}>
-                              {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                            </Button>
-                            <div className="flex-1 h-1 bg-white/30 rounded-full">
-                              <div className="w-1/3 h-full bg-primary rounded-full" />
-                            </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-white" onClick={() => setIsMuted(!isMuted)}>
-                              {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-white">
-                              <Maximize className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  }
-                  
-                  return <Icon className={`h-16 w-16 ${color}`} />
-                })()}
-              </div>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="flex-1 flex flex-col gap-4 overflow-hidden">
+            {selectedFile ? (
+              <>
+                {/* Preview */}
+                <div className="flex-1 min-h-0">
+                  {renderPreview()}
+                </div>
 
-              {/* File info */}
-              {(() => {
-                const file = mediaFiles.find(f => f.id === selectedFile)
-                if (!file) return null
-                
-                return (
-                  <div className="space-y-3">
-                    <div>
-                      <p className="font-medium">{file.name}</p>
-                      <p className="text-sm text-muted-foreground">{file.date}</p>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div className="bg-muted rounded-lg p-2">
-                        <p className="text-muted-foreground">Taille</p>
-                        <p className="font-medium">{file.size}</p>
-                      </div>
-                      <div className="bg-muted rounded-lg p-2">
-                        <p className="text-muted-foreground">Type</p>
-                        <p className="font-medium uppercase">{file.type}</p>
-                      </div>
-                    </div>
-
-                    {/* Image controls */}
-                    {(file.type === 'image' || file.type === 'geotiff') && (
-                      <div className="flex items-center justify-center gap-2">
-                        <Button variant="outline" size="icon">
-                          <ZoomOut className="h-4 w-4" />
-                        </Button>
-                        <Button variant="outline" size="icon">
-                          <ZoomIn className="h-4 w-4" />
-                        </Button>
-                        <Button variant="outline" size="icon">
-                          <RotateCw className="h-4 w-4" />
-                        </Button>
-                        <Button variant="outline" size="icon">
-                          <Maximize className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
-
-                    {/* PDF controls */}
-                    {file.type === 'pdf' && (
-                      <div className="flex items-center justify-center gap-2">
-                        <Button variant="outline" size="icon">
-                          <ChevronLeft className="h-4 w-4" />
-                        </Button>
-                        <span className="text-sm">1 / 24</span>
-                        <Button variant="outline" size="icon">
-                          <ChevronRight className="h-4 w-4" />
-                        </Button>
-                        <Button variant="outline" size="icon">
-                          <ZoomIn className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
+                {/* File info */}
+                <div className="space-y-3">
+                  <div>
+                    <p className="font-medium truncate">{selectedFile.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedFile.createdAt.toLocaleDateString()}
+                    </p>
                   </div>
-                )
-              })()}
+                  
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="bg-muted rounded-lg p-2">
+                      <p className="text-muted-foreground">Taille</p>
+                      <p className="font-medium">{formatFileSize(selectedFile.size)}</p>
+                    </div>
+                    <div className="bg-muted rounded-lg p-2">
+                      <p className="text-muted-foreground">Type</p>
+                      <p className="font-medium uppercase">{selectedFile.type}</p>
+                    </div>
+                  </div>
 
-              <div className="flex-1" />
+                  {selectedFile.metadata && (
+                    <div className="bg-muted rounded-lg p-2 text-sm">
+                      {selectedFile.metadata.width && selectedFile.metadata.height && (
+                        <p>Dimensions: {selectedFile.metadata.width} × {selectedFile.metadata.height}</p>
+                      )}
+                      {selectedFile.metadata.pages && (
+                        <p>Pages: {selectedFile.metadata.pages}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
 
-              {/* Actions */}
-              <div className="space-y-2">
-                <Button className="w-full gap-2">
-                  <Eye className="h-4 w-4" />
-                  Ouvrir
-                </Button>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" className="gap-2">
+                {/* Actions */}
+                <div className="space-y-2">
+                  <Button className="w-full gap-2" onClick={() => downloadFile(selectedFile)}>
                     <Download className="h-4 w-4" />
                     Télécharger
                   </Button>
-                  <Button variant="outline" className="gap-2 text-destructive">
+                  <Button 
+                    variant="outline" 
+                    className="w-full gap-2 text-destructive" 
+                    onClick={() => handleDeleteFile(selectedFile)}
+                  >
                     <Trash2 className="h-4 w-4" />
                     Supprimer
                   </Button>
                 </div>
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col">
+                <FileUpload
+                  acceptedTypes={['pdf', 'image', 'video', 'geotiff']}
+                  onFileUpload={handleFileUpload}
+                  multiple
+                />
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Storage info */}
@@ -348,11 +738,11 @@ export default function MediaPage() {
               <FolderOpen className="h-5 w-5 text-primary" />
               <div>
                 <p className="text-sm font-medium">Stockage utilisé</p>
-                <p className="text-xs text-muted-foreground">4.2 GB sur 10 GB</p>
+                <p className="text-xs text-muted-foreground">{formatFileSize(totalSize)} sur 10 GB</p>
               </div>
             </div>
             <div className="w-64 h-2 bg-muted rounded-full overflow-hidden">
-              <div className="w-[42%] h-full bg-primary rounded-full" />
+              <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${storageUsed}%` }} />
             </div>
           </div>
         </CardContent>

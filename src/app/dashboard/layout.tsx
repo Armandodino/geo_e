@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { AppSidebar } from '@/components/app-sidebar'
 import { AppHeader } from '@/components/app-header'
@@ -14,16 +14,26 @@ export default function DashboardLayout({
   const [isLoading, setIsLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
 
-  useEffect(() => {
+  const checkAuth = useCallback(() => {
     // Check authentication on client side only
     const user = localStorage.getItem('geo_e_user')
     if (!user) {
       router.push('/login')
-    } else {
-      setIsAuthenticated(true)
+      return false
     }
-    setIsLoading(false)
+    return true
   }, [router])
+
+  useEffect(() => {
+    // Initialize auth state
+    const authTimeout = setTimeout(() => {
+      const isAuth = checkAuth()
+      setIsAuthenticated(isAuth)
+      setIsLoading(false)
+    }, 0)
+    
+    return () => clearTimeout(authTimeout)
+  }, [checkAuth])
 
   if (isLoading) {
     return (

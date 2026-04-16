@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useState, Suspense } from 'react'
+import dynamic from 'next/dynamic'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -8,6 +9,7 @@ import { Slider } from '@/components/ui/slider'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Switch } from '@/components/ui/switch'
 import { 
   ZoomIn, 
   ZoomOut, 
@@ -25,8 +27,28 @@ import {
   MapPin,
   Layers,
   Sun,
-  Moon
+  Moon,
+  Loader2,
 } from 'lucide-react'
+import { FileUpload } from '@/components/file-upload'
+import { useFileStore } from '@/lib/file-store'
+import { toast } from 'sonner'
+
+// Dynamic import for Potree to avoid SSR
+const PotreeViewer = dynamic(
+  () => import('@/components/potree-viewer'),
+  { 
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full min-h-[400px] bg-slate-900 rounded-lg flex items-center justify-center">
+        <div className="text-center text-white">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p>Chargement du visualiseur 3D...</p>
+        </div>
+      </div>
+    ),
+  }
+)
 
 const measurementTools = [
   { id: 'distance', name: 'Distance', icon: Ruler, description: 'Mesurer la distance entre deux points' },
@@ -44,22 +66,28 @@ const viewPresets = [
 ]
 
 export default function PointCloudPage() {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [isLoading, setIsLoading] = useState(true)
   const [pointSize, setPointSize] = useState([2])
   const [pointBudget, setPointBudget] = useState([1.5])
   const [fov, setFov] = useState([75])
   const [activeTool, setActiveTool] = useState<string | null>(null)
   const [showGrid, setShowGrid] = useState(true)
+  const [edlEnabled, setEdlEnabled] = useState(true)
+  const [edlStrength, setEdlStrength] = useState([1.0])
+  const [nightMode, setNightMode] = useState(false)
+  
+  const { files, addFile } = useFileStore()
+  const lasFiles = files.filter(f => f.type === 'las' || f.type === 'laz')
 
-  useEffect(() => {
-    // Simulate loading
-    const timer = setTimeout(() => {
-      setIsLoading(false)
-    }, 1500)
+  const handleToolSelect = (toolId: string) => {
+    setActiveTool(activeTool === toolId ? null : toolId)
+    // Tool activation will be handled by the Potree viewer
+  }
 
-    return () => clearTimeout(timer)
-  }, [])
+  const handleFileUpload = (file: { id: string; name: string; type: string }) => {
+    if (file.type === 'las' || file.type === 'laz') {
+      toast.info('Le fichier a été importé. Le chargement direct de LAS/LAZ nécessite une conversion.')
+    }
+  }
 
   return (
     <div className="h-full flex flex-col lg:flex-row gap-4">
@@ -101,7 +129,7 @@ export default function PointCloudPage() {
                 {viewPresets.map((preset) => (
                   <Button key={preset.id} variant="ghost" size="sm" className="gap-1">
                     <preset.icon className="h-3 w-3" />
-                    {preset.name}
+                    <span className="hidden sm:inline">{preset.name}</span>
                   </Button>
                 ))}
               </div>
@@ -110,8 +138,21 @@ export default function PointCloudPage() {
 
               {/* Actions */}
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon" title="Afficher/Masquer la grille" onClick={() => setShowGrid(!showGrid)}>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  title="Afficher/Masquer la grille" 
+                  onClick={() => setShowGrid(!showGrid)}
+                >
                   <Layers className={`h-4 w-4 ${showGrid ? 'text-primary' : ''}`} />
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  title="Mode jour/nuit"
+                  onClick={() => setNightMode(!nightMode)}
+                >
+                  {nightMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
                 </Button>
                 <Button variant="outline" size="sm" className="gap-2">
                   <Upload className="h-4 w-4" />
@@ -125,108 +166,26 @@ export default function PointCloudPage() {
         {/* 3D Viewer */}
         <Card className="flex-1 min-h-0">
           <CardContent className="p-0 h-full">
-            <div 
-              ref={containerRef} 
-              className="relative w-full h-full min-h-[400px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-lg overflow-hidden"
-            >
-              {isLoading ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
-                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
-                  <p className="text-white text-sm">Chargement du visualiseur 3D...</p>
+            <Suspense
+              fallback={
+                <div className="w-full h-full min-h-[400px] bg-slate-900 rounded-lg flex items-center justify-center">
+                  <div className="text-center text-white">
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+                    <p>Chargement du visualiseur 3D...</p>
+                  </div>
                 </div>
-              ) : (
-                <>
-                  {/* Simulated 3D scene */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="text-center text-white">
-                      <div className="relative mb-8">
-                        {/* 3D cube visualization */}
-                        <div className="w-40 h-40 mx-auto relative" style={{ perspective: '1000px' }}>
-                          <div 
-                            className="w-full h-full relative"
-                            style={{ 
-                              transformStyle: 'preserve-3d',
-                              animation: 'rotate 20s linear infinite'
-                            }}
-                          >
-                            <div className="absolute inset-0 border-2 border-primary/30 bg-primary/5" style={{ transform: 'translateZ(80px)' }} />
-                            <div className="absolute inset-0 border-2 border-primary/30 bg-primary/5" style={{ transform: 'translateZ(-80px)' }} />
-                            <div className="absolute inset-0 border-2 border-primary/30 bg-primary/5" style={{ transform: 'rotateY(90deg) translateZ(80px)' }} />
-                            <div className="absolute inset-0 border-2 border-primary/30 bg-primary/5" style={{ transform: 'rotateY(-90deg) translateZ(80px)' }} />
-                            <div className="absolute inset-0 border-2 border-primary/30 bg-primary/5" style={{ transform: 'rotateX(90deg) translateZ(80px)' }} />
-                            <div className="absolute inset-0 border-2 border-primary/30 bg-primary/5" style={{ transform: 'rotateX(-90deg) translateZ(80px)' }} />
-                          </div>
-                        </div>
-                        {/* Floating points */}
-                        <div className="absolute inset-0">
-                          {[...Array(50)].map((_, i) => (
-                            <div
-                              key={i}
-                              className="absolute w-1 h-1 bg-primary rounded-full animate-pulse"
-                              style={{
-                                left: `${Math.random() * 100}%`,
-                                top: `${Math.random() * 100}%`,
-                                animationDelay: `${Math.random() * 2}s`,
-                                opacity: 0.3 + Math.random() * 0.7
-                              }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                      <h3 className="text-xl font-semibold mb-2">Visualiseur de Nuages de Points</h3>
-                      <p className="text-slate-400 text-sm max-w-md">
-                        Importez vos fichiers LAS/LAZ pour visualiser vos nuages de points en 3D
-                      </p>
-                      <Button className="mt-4 gap-2">
-                        <Upload className="h-4 w-4" />
-                        Charger un fichier
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Grid overlay */}
-                  {showGrid && (
-                    <div 
-                      className="absolute inset-x-0 bottom-0 h-1/2 pointer-events-none"
-                      style={{
-                        backgroundImage: `
-                          linear-gradient(rgba(16, 185, 129, 0.1) 1px, transparent 1px),
-                          linear-gradient(90deg, rgba(16, 185, 129, 0.1) 1px, transparent 1px)
-                        `,
-                        backgroundSize: '50px 50px',
-                        transform: 'perspective(500px) rotateX(60deg)',
-                        transformOrigin: 'bottom'
-                      }}
-                    />
-                  )}
-
-                  {/* Info overlay */}
-                  <div className="absolute top-4 left-4 bg-black/50 backdrop-blur rounded-lg p-3 text-white text-xs">
-                    <div className="flex items-center gap-2 mb-1">
-                      <MapPin className="h-3 w-3 text-primary" />
-                      <span>Position: 5.3599° N, -4.0083° W</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Mountain className="h-3 w-3 text-primary" />
-                      <span>Altitude: 0 - 150 m</span>
-                    </div>
-                  </div>
-
-                  {/* Compass */}
-                  <div className="absolute top-4 right-4 bg-black/50 backdrop-blur rounded-lg p-2">
-                    <div className="w-12 h-12 relative">
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-0 h-0 border-l-4 border-r-4 border-b-8 border-l-transparent border-r-transparent border-b-red-500" />
-                      </div>
-                      <span className="absolute top-0 left-1/2 -translate-x-1/2 text-white text-xs font-bold">N</span>
-                      <span className="absolute bottom-0 left-1/2 -translate-x-1/2 text-white text-xs">S</span>
-                      <span className="absolute left-0 top-1/2 -translate-y-1/2 text-white text-xs">O</span>
-                      <span className="absolute right-0 top-1/2 -translate-y-1/2 text-white text-xs">E</span>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
+              }
+            >
+              <PotreeViewer
+                className="w-full h-full min-h-[400px] rounded-lg"
+                onPointCloudLoad={(pc) => {
+                  console.log('Point cloud loaded:', pc)
+                }}
+                onMeasurement={(type, value) => {
+                  console.log('Measurement:', type, value)
+                }}
+              />
+            </Suspense>
           </CardContent>
         </Card>
       </div>
@@ -238,6 +197,7 @@ export default function PointCloudPage() {
             <TabsList className="w-full">
               <TabsTrigger value="tools" className="flex-1">Outils</TabsTrigger>
               <TabsTrigger value="settings" className="flex-1">Paramètres</TabsTrigger>
+              <TabsTrigger value="import" className="flex-1">Import</TabsTrigger>
             </TabsList>
           </CardHeader>
           
@@ -253,7 +213,7 @@ export default function PointCloudPage() {
                           key={tool.id}
                           variant={activeTool === tool.id ? 'default' : 'outline'}
                           className="w-full justify-start gap-3 h-auto py-3"
-                          onClick={() => setActiveTool(tool.id)}
+                          onClick={() => handleToolSelect(tool.id)}
                         >
                           <tool.icon className="h-5 w-5" />
                           <div className="text-left">
@@ -269,17 +229,24 @@ export default function PointCloudPage() {
 
                   <div>
                     <h4 className="text-sm font-medium mb-3">Fichiers récents</h4>
-                    <div className="space-y-2">
-                      {['Abidjan_Centre.laz', 'San_Pedro.las', 'Yamoussoukro.laz'].map((file, i) => (
-                        <div 
-                          key={i}
-                          className="flex items-center gap-2 p-2 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer"
-                        >
-                          <FolderOpen className="h-4 w-4 text-primary" />
-                          <span className="text-sm truncate">{file}</span>
-                        </div>
-                      ))}
-                    </div>
+                    {lasFiles.length === 0 ? (
+                      <div className="text-center py-4 text-muted-foreground">
+                        <FolderOpen className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Aucun fichier importé</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {lasFiles.map((file) => (
+                          <div 
+                            key={file.id}
+                            className="flex items-center gap-2 p-2 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer"
+                          >
+                            <FolderOpen className="h-4 w-4 text-primary" />
+                            <span className="text-sm truncate">{file.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </ScrollArea>
@@ -336,13 +303,53 @@ export default function PointCloudPage() {
                   <Separator />
 
                   <div>
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">Eye-Dome Lighting</Label>
+                      <Switch
+                        checked={edlEnabled}
+                        onCheckedChange={setEdlEnabled}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Améliore la perception de profondeur
+                    </p>
+                  </div>
+
+                  {edlEnabled && (
+                    <div>
+                      <Label className="text-sm font-medium">Intensité EDL</Label>
+                      <div className="mt-2 flex items-center gap-4">
+                        <Slider
+                          value={edlStrength}
+                          onValueChange={setEdlStrength}
+                          min={0}
+                          max={3}
+                          step={0.1}
+                          className="flex-1"
+                        />
+                        <span className="text-sm text-muted-foreground w-8">{edlStrength[0].toFixed(1)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <Separator />
+
+                  <div>
                     <h4 className="text-sm font-medium mb-3">Éclairage</h4>
                     <div className="grid grid-cols-2 gap-2">
-                      <Button variant="outline" className="gap-2">
+                      <Button 
+                        variant={nightMode ? 'outline' : 'default'} 
+                        className="gap-2"
+                        onClick={() => setNightMode(false)}
+                      >
                         <Sun className="h-4 w-4" />
                         Jour
                       </Button>
-                      <Button variant="outline" className="gap-2">
+                      <Button 
+                        variant={nightMode ? 'default' : 'outline'} 
+                        className="gap-2"
+                        onClick={() => setNightMode(true)}
+                      >
                         <Moon className="h-4 w-4" />
                         Nuit
                       </Button>
@@ -363,7 +370,46 @@ export default function PointCloudPage() {
                       <Button variant="outline" className="w-full justify-start">
                         Couleur par classification
                       </Button>
+                      <Button variant="outline" className="w-full justify-start">
+                        Couleur RVB
+                      </Button>
                     </div>
+                  </div>
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            <TabsContent value="import" className="m-0 h-full">
+              <ScrollArea className="h-full p-4">
+                <div className="space-y-4">
+                  <FileUpload
+                    acceptedTypes={['las', 'laz']}
+                    onFileUpload={handleFileUpload}
+                    maxSize={500 * 1024 * 1024}
+                  />
+
+                  <Separator />
+
+                  <div>
+                    <h4 className="text-sm font-medium mb-2">Formats supportés</h4>
+                    <div className="space-y-2 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <Box className="h-4 w-4 text-primary" />
+                        <span>LAS (.las) - Standard LiDAR</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Box className="h-4 w-4 text-primary" />
+                        <span>LAZ (.laz) - LAS compressé</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-muted/50 rounded-lg p-4">
+                    <h4 className="text-sm font-medium mb-2">Note</h4>
+                    <p className="text-xs text-muted-foreground">
+                      Les fichiers LAS/LAZ doivent être convertis au format Potree (conversion en tuiles) 
+                      pour être visualisés. Cette conversion nécessite un traitement côté serveur.
+                    </p>
                   </div>
                 </div>
               </ScrollArea>
@@ -371,13 +417,6 @@ export default function PointCloudPage() {
           </CardContent>
         </Tabs>
       </Card>
-
-      <style jsx global>{`
-        @keyframes rotate {
-          from { transform: rotateX(-20deg) rotateY(0deg); }
-          to { transform: rotateX(-20deg) rotateY(360deg); }
-        }
-      `}</style>
     </div>
   )
 }

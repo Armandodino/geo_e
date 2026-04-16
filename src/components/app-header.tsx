@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -25,21 +25,26 @@ export function AppHeader() {
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
-    const stored = localStorage.getItem('geo_e_user')
-    if (stored) {
-      try {
-        setUser(JSON.parse(stored))
-      } catch {
-        setUser(null)
+    // Use a microtask to avoid setState in render phase
+    const initTimeout = setTimeout(() => {
+      setMounted(true)
+      const stored = localStorage.getItem('geo_e_user')
+      if (stored) {
+        try {
+          setUser(JSON.parse(stored))
+        } catch {
+          setUser(null)
+        }
       }
-    }
+    }, 0)
+    
+    return () => clearTimeout(initTimeout)
   }, [])
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem('geo_e_user')
     router.push('/login')
-  }
+  }, [router])
 
   return (
     <header className="h-16 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
