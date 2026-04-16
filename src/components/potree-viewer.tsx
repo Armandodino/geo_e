@@ -252,6 +252,8 @@ export function PotreeViewerComponent({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
   const controlsRef = useRef<OrbitControls | null>(null)
   const pointCloudRef = useRef<THREE.Points | null>(null)
+  const gridHelperRef = useRef<THREE.GridHelper | null>(null)
+  const axesHelperRef = useRef<THREE.AxesHelper | null>(null)
   const animationIdRef = useRef<number | null>(null)
   const loadedUrlRef = useRef<string | null | undefined>('__initial__')
   
@@ -264,6 +266,7 @@ export function PotreeViewerComponent({
   const [pointCount, setPointCount] = useState(0)
   const [isRealFile, setIsRealFile] = useState(false)
   const [measurementValue, setMeasurementValue] = useState<string | null>(null)
+  const [showHelpers, setShowHelpers] = useState(true)
 
   // Initialize Three.js scene
   useEffect(() => {
@@ -310,9 +313,11 @@ export function PotreeViewerComponent({
 
       const gridHelper = new THREE.GridHelper(100, 50, 0x444444, 0x333333)
       scene.add(gridHelper)
+      gridHelperRef.current = gridHelper
 
       const axesHelper = new THREE.AxesHelper(20)
       scene.add(axesHelper)
+      axesHelperRef.current = axesHelper
 
       const handleResize = () => {
         if (!containerRef.current) return
@@ -446,6 +451,12 @@ export function PotreeViewerComponent({
       (pointCloudRef.current.material as THREE.PointsMaterial).size = pointSize
     }
   }, [pointSize])
+
+  // Toggle Helpers
+  useEffect(() => {
+    if (gridHelperRef.current) gridHelperRef.current.visible = showHelpers;
+    if (axesHelperRef.current) axesHelperRef.current.visible = showHelpers;
+  }, [showHelpers])
 
   // Camera controls
   const zoomIn = useCallback(() => {
@@ -612,21 +623,35 @@ export function PotreeViewerComponent({
         </Card>
       </div>
 
-      {/* Point size control */}
-      <div className="absolute top-20 left-4 z-20">
+      {/* Tool panel: Settings */}
+      <div className="absolute top-20 left-4 z-20 flex flex-col gap-2">
         <Card className="p-2 bg-black/50 border-none">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-white">Points:</span>
-            <input
-              type="range"
-              min="0.5"
-              max="5"
-              step="0.5"
-              value={pointSize}
-              onChange={(e) => setPointSize(parseFloat(e.target.value))}
-              className="w-20"
-            />
-            <span className="text-xs text-white">{pointSize}</span>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-white">Points:</span>
+              <input
+                type="range"
+                min="0.5"
+                max="5"
+                step="0.5"
+                value={pointSize}
+                onChange={(e) => setPointSize(parseFloat(e.target.value))}
+                className="w-20"
+              />
+              <span className="text-xs text-white w-6">{pointSize}</span>
+            </div>
+            
+            <div className="flex items-center gap-2 justify-between">
+               <span className="text-xs text-white">Repère 3D:</span>
+               <Button
+                  variant={showHelpers ? "default" : "ghost"}
+                  size="sm"
+                  className={showHelpers ? "h-6 text-[10px]" : "h-6 text-[10px] text-white hover:bg-white/20"}
+                  onClick={() => setShowHelpers(!showHelpers)}
+               >
+                  {showHelpers ? 'Affiché' : 'Masqué'}
+               </Button>
+            </div>
           </div>
         </Card>
       </div>
