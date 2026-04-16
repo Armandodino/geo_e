@@ -16,57 +16,232 @@ import {
   Mountain,
   Square,
   Crosshair,
+  AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 // Three.js imports
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js'
-import { LASLoader } from 'three/examples/jsm/loaders/LASLoader.js'
 
 interface PointCloudViewerProps {
   className?: string
   height?: string
+  fileUrl?: string | null
+  fileName?: string
   onPointCloudLoad?: (pointcloud: unknown) => void
   onMeasurement?: (type: string, value: number) => void
 }
 
-// Generate random point cloud data for demo
-function generateDemoPointCloud(count: number = 50000): Float32Array {
-  const positions = new Float32Array(count * 3)
-  const colors = new Float32Array(count * 3)
-  
-  for (let i = 0; i < count; i++) {
-    // Create a 3D terrain-like shape
-    const x = (Math.random() - 0.5) * 100
-    const z = (Math.random() - 0.5) * 100
-    const y = Math.sin(x * 0.1) * Math.cos(z * 0.1) * 10 + Math.random() * 5
-    
-    positions[i * 3] = x
-    positions[i * 3 + 1] = y
-    positions[i * 3 + 2] = z
-    
-    // Color based on height
-    const normalizedY = (y + 10) / 20
-    colors[i * 3] = normalizedY * 0.2 + 0.1     // R
-    colors[i * 3 + 1] = 0.6 - normalizedY * 0.3 // G
-    colors[i * 3 + 2] = normalizedY * 0.5 + 0.3  // B
-  }
-  
-  return { positions, colors } as unknown as Float32Array
-}
-
 // Demo scenes
 const DEMO_SCENES = [
-  { id: 'terrain', name: 'Terrain 3D', description: 'Terrain synthétique' },
+  { id: 'terrain', name: 'Terrain', description: 'Terrain synthétique' },
   { id: 'building', name: 'Bâtiment', description: 'Scan de bâtiment' },
   { id: 'forest', name: 'Forêt', description: 'Scan forestier' },
 ]
 
+// Generate demo point cloud
+function generateDemoPointCloud(sceneType: string): { positions: Float32Array; colors: Float32Array; count: number } {
+  const count = sceneType === 'building' ? 80000 : sceneType === 'forest' ? 60000 : 50000
+  const positions = new Float32Array(count * 3)
+  const colors = new Float32Array(count * 3)
+  
+  if (sceneType === 'building') {
+    for (let i = 0; i < count; i++) {
+      const isWall = Math.random() > 0.3
+      if (isWall) {
+        const side = Math.floor(Math.random() * 4)
+        const x = side === 0 ? -20 : side === 1 ? 20 : (Math.random() - 0.5) * 40
+        const z = side === 2 ? -20 : side === 3 ? 20 : (Math.random() - 0.5) * 40
+        const y = Math.random() * 30
+        positions[i * 3] = x
+        positions[i * 3 + 1] = y
+        positions[i * 3 + 2] = z
+      } else {
+        positions[i * 3] = (Math.random() - 0.5) * 40
+        positions[i * 3 + 1] = 30 + Math.random() * 5
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 40
+      }
+      colors[i * 3] = 0.7 + Math.random() * 0.3
+      colors[i * 3 + 1] = 0.6 + Math.random() * 0.2
+      colors[i * 3 + 2] = 0.5 + Math.random() * 0.2
+    }
+  } else if (sceneType === 'forest') {
+    for (let i = 0; i < count; i++) {
+      const treeX = Math.floor(Math.random() * 20) * 5 - 50
+      const treeZ = Math.floor(Math.random() * 20) * 5 - 50
+      const isTree = Math.random() > 0.2
+      if (isTree) {
+        const angle = Math.random() * Math.PI * 2
+        const radius = Math.random() * 2
+        positions[i * 3] = treeX + Math.cos(angle) * radius
+        positions[i * 3 + 1] = Math.random() * 15
+        positions[i * 3 + 2] = treeZ + Math.sin(angle) * radius
+        colors[i * 3] = 0.1 + Math.random() * 0.2
+        colors[i * 3 + 1] = 0.4 + Math.random() * 0.4
+        colors[i * 3 + 2] = 0.1 + Math.random() * 0.2
+      } else {
+        positions[i * 3] = (Math.random() - 0.5) * 100
+        positions[i * 3 + 1] = Math.random() * 0.5
+        positions[i * 3 + 2] = (Math.random() - 0.5) * 100
+        colors[i * 3] = 0.3 + Math.random() * 0.2
+        colors[i * 3 + 1] = 0.2 + Math.random() * 0.1
+        colors[i * 3 + 2] = 0.1
+      }
+    }
+  } else {
+    for (let i = 0; i < count; i++) {
+      const x = (Math.random() - 0.5) * 100
+      const z = (Math.random() - 0.5) * 100
+      const y = Math.sin(x * 0.1) * Math.cos(z * 0.1) * 10 + Math.random() * 5
+      positions[i * 3] = x
+      positions[i * 3 + 1] = y
+      positions[i * 3 + 2] = z
+      const normalizedY = (y + 10) / 20
+      colors[i * 3] = normalizedY * 0.8
+      colors[i * 3 + 1] = 0.6 - normalizedY * 0.4
+      colors[i * 3 + 2] = normalizedY * 0.2 + 0.2
+    }
+  }
+  
+  return { positions, colors, count }
+}
+
+// Parse LAS/LAZ file header and data
+async function parsePointCloudFile(url: string): Promise<{ positions: Float32Array; colors: Float32Array; count: number }> {
+  const response = await fetch(url)
+  const arrayBuffer = await response.arrayBuffer()
+  const dataView = new DataView(arrayBuffer)
+  
+  // Check if it's a LAS file (magic number "LASF")
+  const magic = String.fromCharCode(
+    dataView.getUint8(0),
+    dataView.getUint8(1),
+    dataView.getUint8(2),
+    dataView.getUint8(3)
+  )
+  
+  if (magic !== 'LASF') {
+    throw new Error('Format non supporté. Utilisez un fichier LAS/LAZ valide.')
+  }
+  
+  // Parse LAS header
+  const header = {
+    fileSignature: magic,
+    versionMajor: dataView.getUint8(24),
+    versionMinor: dataView.getUint8(25),
+    headerSize: dataView.getUint16(94, true),
+    offsetToPointData: dataView.getUint32(96, true),
+    numberOfPoints: dataView.getUint32(107, true),
+    pointDataRecordLength: dataView.getUint16(94 + 6, true),
+    scale: {
+      x: dataView.getFloat64(96 + 8, true),
+      y: dataView.getFloat64(96 + 16, true),
+      z: dataView.getFloat64(96 + 24, true),
+    },
+    offset: {
+      x: dataView.getFloat64(96 + 32, true),
+      y: dataView.getFloat64(96 + 40, true),
+      z: dataView.getFloat64(96 + 48, true),
+    },
+  }
+  
+  // Limit points for performance
+  const maxPoints = 500000
+  const step = Math.max(1, Math.floor(header.numberOfPoints / maxPoints))
+  const count = Math.min(header.numberOfPoints, maxPoints)
+  
+  const positions = new Float32Array(count * 3)
+  const colors = new Float32Array(count * 3)
+  
+  // Find min/max for normalization
+  let minX = Infinity, maxX = -Infinity
+  let minY = Infinity, maxY = -Infinity
+  let minZ = Infinity, maxZ = -Infinity
+  
+  const pointOffset = header.offsetToPointData
+  const recordLength = header.pointDataRecordLength || 20
+  
+  // First pass: find bounds
+  for (let i = 0; i < count; i++) {
+    const pointIndex = i * step
+    const byteOffset = pointOffset + pointIndex * recordLength
+    
+    if (byteOffset + 12 > arrayBuffer.byteLength) break
+    
+    const x = dataView.getInt32(byteOffset, true) * header.scale.x + header.offset.x
+    const y = dataView.getInt32(byteOffset + 4, true) * header.scale.y + header.offset.y
+    const z = dataView.getInt32(byteOffset + 8, true) * header.scale.z + header.offset.z
+    
+    minX = Math.min(minX, x)
+    maxX = Math.max(maxX, x)
+    minY = Math.min(minY, y)
+    maxY = Math.max(maxY, y)
+    minZ = Math.min(minZ, z)
+    maxZ = Math.max(maxZ, z)
+  }
+  
+  const centerX = (minX + maxX) / 2
+  const centerY = (minY + maxY) / 2
+  const centerZ = (minZ + maxZ) / 2
+  const scale = Math.max(maxX - minX, maxY - minY, maxZ - minZ) / 100
+  
+  // Second pass: read points with color
+  for (let i = 0; i < count; i++) {
+    const pointIndex = i * step
+    const byteOffset = pointOffset + pointIndex * recordLength
+    
+    if (byteOffset + 12 > arrayBuffer.byteLength) break
+    
+    const x = (dataView.getInt32(byteOffset, true) * header.scale.x + header.offset.x - centerX) / scale
+    const y = (dataView.getInt32(byteOffset + 4, true) * header.scale.y + header.offset.y - centerY) / scale
+    const z = (dataView.getInt32(byteOffset + 8, true) * header.scale.z + header.offset.z - centerZ) / scale
+    
+    positions[i * 3] = x
+    positions[i * 3 + 1] = z
+    positions[i * 3 + 2] = y
+    
+    // Try to read RGB color if available (after position + intensity)
+    let r = 0.5, g = 0.5, b = 0.5
+    
+    if (byteOffset + 20 + 6 <= arrayBuffer.byteLength) {
+      // Try reading RGB (format 2 or 3)
+      const red = dataView.getUint16(byteOffset + 20, true)
+      const green = dataView.getUint16(byteOffset + 22, true)
+      const blue = dataView.getUint16(byteOffset + 24, true)
+      
+      if (red > 0 || green > 0 || blue > 0) {
+        r = red / 65535
+        g = green / 65535
+        b = blue / 65535
+      } else {
+        // Use height-based coloring
+        const normalizedZ = (z - minZ / scale) / ((maxZ - minZ) / scale)
+        r = normalizedZ * 0.8
+        g = 0.6 - normalizedZ * 0.4
+        b = normalizedZ * 0.2 + 0.2
+      }
+    } else {
+      // Use height-based coloring
+      const normalizedZ = (z - minZ / scale) / ((maxZ - minZ) / scale)
+      r = normalizedZ * 0.8
+      g = 0.6 - normalizedZ * 0.4
+      b = normalizedZ * 0.2 + 0.2
+    }
+    
+    colors[i * 3] = r
+    colors[i * 3 + 1] = g
+    colors[i * 3 + 2] = b
+  }
+  
+  return { positions, colors, count }
+}
+
 export function PotreeViewerComponent({
   className = '',
   height = '100%',
+  fileUrl,
+  fileName,
   onPointCloudLoad,
   onMeasurement,
 }: PointCloudViewerProps) {
@@ -84,6 +259,7 @@ export function PotreeViewerComponent({
   const [activeTool, setActiveTool] = useState<string | null>(null)
   const [currentScene, setCurrentScene] = useState('terrain')
   const [pointCount, setPointCount] = useState(0)
+  const [isRealFile, setIsRealFile] = useState(false)
   const [measurementValue, setMeasurementValue] = useState<string | null>(null)
 
   // Initialize Three.js scene
@@ -91,7 +267,6 @@ export function PotreeViewerComponent({
     if (!containerRef.current) return
 
     try {
-      // Create renderer
       const renderer = new THREE.WebGLRenderer({ 
         antialias: true,
         alpha: true 
@@ -102,12 +277,10 @@ export function PotreeViewerComponent({
       containerRef.current.appendChild(renderer.domElement)
       rendererRef.current = renderer
 
-      // Create scene
       const scene = new THREE.Scene()
       scene.fog = new THREE.Fog(0x1a1a2e, 50, 200)
       sceneRef.current = scene
 
-      // Create camera
       const camera = new THREE.PerspectiveCamera(
         75,
         containerRef.current.clientWidth / containerRef.current.clientHeight,
@@ -117,7 +290,6 @@ export function PotreeViewerComponent({
       camera.position.set(50, 50, 50)
       cameraRef.current = camera
 
-      // Create controls
       const controls = new OrbitControls(camera, renderer.domElement)
       controls.enableDamping = true
       controls.dampingFactor = 0.05
@@ -126,7 +298,6 @@ export function PotreeViewerComponent({
       controls.maxDistance = 500
       controlsRef.current = controls
 
-      // Add lights
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
       scene.add(ambientLight)
 
@@ -134,15 +305,12 @@ export function PotreeViewerComponent({
       directionalLight.position.set(50, 100, 50)
       scene.add(directionalLight)
 
-      // Add grid
       const gridHelper = new THREE.GridHelper(100, 50, 0x444444, 0x333333)
       scene.add(gridHelper)
 
-      // Add axes
       const axesHelper = new THREE.AxesHelper(20)
       scene.add(axesHelper)
 
-      // Handle resize
       const handleResize = () => {
         if (!containerRef.current) return
         const width = containerRef.current.clientWidth
@@ -154,7 +322,6 @@ export function PotreeViewerComponent({
       }
       window.addEventListener('resize', handleResize)
 
-      // Animation loop
       const animate = () => {
         animationIdRef.current = requestAnimationFrame(animate)
         controls.update()
@@ -180,8 +347,8 @@ export function PotreeViewerComponent({
     }
   }, [])
 
-  // Load demo point cloud
-  const loadDemoPointCloud = useCallback((sceneType: string) => {
+  // Load point cloud from URL or demo
+  const loadPointCloud = useCallback(async (url: string | null | undefined, sceneType?: string) => {
     if (!sceneRef.current) return
 
     // Remove existing point cloud
@@ -192,135 +359,76 @@ export function PotreeViewerComponent({
     }
 
     setIsLoading(true)
-    
-    // Generate points based on scene type
-    const count = sceneType === 'building' ? 80000 : sceneType === 'forest' ? 60000 : 50000
-    const data = generateDemoPointCloud(count)
-    
-    // Create geometry
-    const geometry = new THREE.BufferGeometry()
-    
-    if (sceneType === 'building') {
-      // Building-like structure
-      const positions = new Float32Array(count * 3)
-      const colors = new Float32Array(count * 3)
-      
-      for (let i = 0; i < count; i++) {
-        const isWall = Math.random() > 0.3
-        if (isWall) {
-          // Walls
-          const side = Math.floor(Math.random() * 4)
-          const x = side === 0 ? -20 : side === 1 ? 20 : (Math.random() - 0.5) * 40
-          const z = side === 2 ? -20 : side === 3 ? 20 : (Math.random() - 0.5) * 40
-          const y = Math.random() * 30
-          
-          positions[i * 3] = x
-          positions[i * 3 + 1] = y
-          positions[i * 3 + 2] = z
-        } else {
-          // Roof
-          positions[i * 3] = (Math.random() - 0.5) * 40
-          positions[i * 3 + 1] = 30 + Math.random() * 5
-          positions[i * 3 + 2] = (Math.random() - 0.5) * 40
-        }
-        
-        colors[i * 3] = 0.7 + Math.random() * 0.3
-        colors[i * 3 + 1] = 0.6 + Math.random() * 0.2
-        colors[i * 3 + 2] = 0.5 + Math.random() * 0.2
+    setError(null)
+
+    try {
+      let positions: Float32Array
+      let colors: Float32Array
+      let count: number
+
+      if (url) {
+        // Load real file
+        const result = await parsePointCloudFile(url)
+        positions = result.positions
+        colors = result.colors
+        count = result.count
+        setIsRealFile(true)
+        setCurrentScene('file')
+        toast.success(`Fichier chargé: ${count.toLocaleString()} points`)
+      } else {
+        // Load demo
+        const result = generateDemoPointCloud(sceneType || 'terrain')
+        positions = result.positions
+        colors = result.colors
+        count = result.count
+        setIsRealFile(false)
+        setCurrentScene(sceneType || 'terrain')
       }
-      
+
+      const geometry = new THREE.BufferGeometry()
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-    } else if (sceneType === 'forest') {
-      // Forest-like structure with trees
-      const positions = new Float32Array(count * 3)
-      const colors = new Float32Array(count * 3)
+
+      const material = new THREE.PointsMaterial({
+        size: pointSize,
+        vertexColors: true,
+        sizeAttenuation: true,
+      })
+
+      const pointCloud = new THREE.Points(geometry, material)
+      sceneRef.current.add(pointCloud)
+      pointCloudRef.current = pointCloud
       
-      for (let i = 0; i < count; i++) {
-        const treeX = Math.floor(Math.random() * 20) * 5 - 50
-        const treeZ = Math.floor(Math.random() * 20) * 5 - 50
-        const isTree = Math.random() > 0.2
-        
-        if (isTree) {
-          // Tree trunk/crown
-          const angle = Math.random() * Math.PI * 2
-          const radius = Math.random() * 2
-          positions[i * 3] = treeX + Math.cos(angle) * radius
-          positions[i * 3 + 1] = Math.random() * 15
-          positions[i * 3 + 2] = treeZ + Math.sin(angle) * radius
-          
-          // Green colors
-          colors[i * 3] = 0.1 + Math.random() * 0.2
-          colors[i * 3 + 1] = 0.4 + Math.random() * 0.4
-          colors[i * 3 + 2] = 0.1 + Math.random() * 0.2
-        } else {
-          // Ground
-          positions[i * 3] = (Math.random() - 0.5) * 100
-          positions[i * 3 + 1] = Math.random() * 0.5
-          positions[i * 3 + 2] = (Math.random() - 0.5) * 100
-          
-          colors[i * 3] = 0.3 + Math.random() * 0.2
-          colors[i * 3 + 1] = 0.2 + Math.random() * 0.1
-          colors[i * 3 + 2] = 0.1
-        }
+      setPointCount(count)
+
+      // Fit camera
+      if (cameraRef.current && controlsRef.current) {
+        controlsRef.current.reset()
+        cameraRef.current.position.set(60, 40, 60)
       }
-      
-      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-    } else {
-      // Terrain
-      const positions = new Float32Array(count * 3)
-      const colors = new Float32Array(count * 3)
-      
-      for (let i = 0; i < count; i++) {
-        const x = (Math.random() - 0.5) * 100
-        const z = (Math.random() - 0.5) * 100
-        const y = Math.sin(x * 0.1) * Math.cos(z * 0.1) * 10 + Math.random() * 5
-        
-        positions[i * 3] = x
-        positions[i * 3 + 1] = y
-        positions[i * 3 + 2] = z
-        
-        const normalizedY = (y + 10) / 20
-        colors[i * 3] = normalizedY * 0.8
-        colors[i * 3 + 1] = 0.6 - normalizedY * 0.4
-        colors[i * 3 + 2] = normalizedY * 0.2 + 0.2
+
+      if (onPointCloudLoad) {
+        onPointCloudLoad({ pointCount: count })
       }
-      
-      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    } catch (err) {
+      console.error('Error loading point cloud:', err)
+      setError(err instanceof Error ? err.message : 'Erreur lors du chargement')
+      toast.error('Erreur lors du chargement du fichier')
     }
 
-    // Create material
-    const material = new THREE.PointsMaterial({
-      size: pointSize,
-      vertexColors: true,
-      sizeAttenuation: true,
-    })
-
-    // Create point cloud
-    const pointCloud = new THREE.Points(geometry, material)
-    sceneRef.current.add(pointCloud)
-    pointCloudRef.current = pointCloud
-    
-    setPointCount(count)
-    setCurrentScene(sceneType)
     setIsLoading(false)
-    toast.success(`Nuage de points chargé: ${count.toLocaleString()} points`)
-    
-    // Fit camera
-    if (cameraRef.current && controlsRef.current) {
-      controlsRef.current.reset()
-      cameraRef.current.position.set(60, 40, 60)
-    }
-  }, [pointSize])
+  }, [pointSize, onPointCloudLoad])
 
-  // Load initial point cloud
+  // Load file when URL changes
   useEffect(() => {
     if (!isLoading && sceneRef.current) {
-      loadDemoPointCloud('terrain')
+      if (fileUrl) {
+        loadPointCloud(fileUrl)
+      } else {
+        loadPointCloud(null, 'terrain')
+      }
     }
-  }, [isLoading, loadDemoPointCloud])
+  }, [isLoading, fileUrl, loadPointCloud])
 
   // Update point size
   useEffect(() => {
@@ -383,7 +491,7 @@ export function PotreeViewerComponent({
     setMeasurementValue(null)
     
     if (tool !== activeTool) {
-      toast.info(`Outil ${tool} activé - Cliquez sur les points pour mesurer`)
+      toast.info(`Outil ${tool} activé`)
     }
   }, [activeTool])
 
@@ -392,7 +500,7 @@ export function PotreeViewerComponent({
       <div className={`relative ${className}`} style={{ height }}>
         <div className="w-full h-full bg-slate-900 rounded-lg flex items-center justify-center">
           <div className="text-center text-white">
-            <Box className="h-16 w-16 mx-auto mb-4 opacity-50" />
+            <AlertCircle className="h-16 w-16 mx-auto mb-4 text-yellow-500" />
             <p className="text-lg font-medium">Erreur de chargement</p>
             <p className="text-sm text-slate-400 mt-2">{error}</p>
             <Button variant="outline" className="mt-4" onClick={() => window.location.reload()}>
@@ -417,7 +525,7 @@ export function PotreeViewerComponent({
         <div className="absolute inset-0 bg-slate-900/80 flex items-center justify-center rounded-lg z-10">
           <div className="text-center text-white">
             <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-            <p>Chargement du nuage de points...</p>
+            <p>{fileUrl ? 'Chargement du fichier...' : 'Chargement...'}</p>
           </div>
         </div>
       )}
@@ -467,26 +575,28 @@ export function PotreeViewerComponent({
         </Card>
       </div>
 
-      {/* Demo scenes selector */}
-      <div className="absolute bottom-4 left-4 pointer-events-auto z-20">
-        <Card className="p-2 bg-black/50 border-none">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-white">Scènes:</span>
-            {DEMO_SCENES.map((scene) => (
-              <Button
-                key={scene.id}
-                variant={currentScene === scene.id ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => loadDemoPointCloud(scene.id)}
-                title={scene.description}
-                className={currentScene === scene.id ? '' : 'text-white hover:text-white hover:bg-white/20'}
-              >
-                {scene.name}
-              </Button>
-            ))}
-          </div>
-        </Card>
-      </div>
+      {/* Demo scenes selector - only show if no real file */}
+      {!isRealFile && !fileUrl && (
+        <div className="absolute bottom-4 left-4 pointer-events-auto z-20">
+          <Card className="p-2 bg-black/50 border-none">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-white">Démo:</span>
+              {DEMO_SCENES.map((scene) => (
+                <Button
+                  key={scene.id}
+                  variant={currentScene === scene.id ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => loadPointCloud(null, scene.id)}
+                  title={scene.description}
+                  className={currentScene === scene.id ? '' : 'text-white hover:text-white hover:bg-white/20'}
+                >
+                  {scene.name}
+                </Button>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Measurement tools */}
       <div className="absolute bottom-4 right-4 pointer-events-auto z-20">
@@ -539,9 +649,15 @@ export function PotreeViewerComponent({
             <Badge variant="outline" className="border-white/30 text-white">
               {pointCount.toLocaleString()} points
             </Badge>
-            <Badge variant="outline" className="border-white/30 text-white">
-              {currentScene}
-            </Badge>
+            {isRealFile ? (
+              <Badge variant="default" className="bg-green-600">
+                Fichier réel
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="border-white/30 text-white">
+                Démo
+              </Badge>
+            )}
           </div>
         </Card>
       </div>

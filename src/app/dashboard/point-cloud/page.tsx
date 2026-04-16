@@ -552,7 +552,11 @@ export default function PointCloudPage() {
               </div>
             }
           >
-            <PotreeViewer className="w-full h-full" />
+            <PotreeViewer 
+              className="w-full h-full" 
+              fileUrl={selectedFile?.url}
+              fileName={selectedFile?.name}
+            />
           </Suspense>
 
           {/* Stats overlay */}
