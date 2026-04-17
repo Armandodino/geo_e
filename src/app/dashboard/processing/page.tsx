@@ -23,8 +23,14 @@ import {
   MapPin,
   Check,
   XCircle,
-  Archive
+  Archive,
+  FileDown,
+  FileText,
+  Table,
+  FileCode2,
 } from 'lucide-react'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu'
+import { exportJSON, exportCSV, exportHTMLReport } from '@/lib/export-utils'
 
 // Simulated Stages of OpenDroneMap
 const ODM_STAGES = [
@@ -154,19 +160,10 @@ export default function ProcessingPage() {
           id: geoId,
           name: `${projectName}_Pointcloud.laz`,
           type: 'las',
-          size: 154000000, // 154 MB fake
-          url: null, // Would be a real potree link if we processed it
-          metadata: {
-            source: 'WebODM Simulation',
-            imagesCount: images.length
-          },
-          analysis: {
-            status: 'completed',
-            pointCloud: {
-              pointCount: 3500200,
-              avgDensity: 42.5
-            }
-          }
+          size: 154000000,
+          url: null,
+          metadata: { source: 'WebODM Simulation', imagesCount: images.length },
+          analysis: { status: 'completed', pointCloud: { pointCount: 3500200, avgDensity: 42.5 } }
         })
       })
 
@@ -179,26 +176,61 @@ export default function ProcessingPage() {
           id: imgId,
           name: `${projectName}_Orthophoto.tif`,
           type: 'geotiff',
-          size: 45000000, // 45 MB
-          metadata: {
-            source: 'WebODM Simulation',
-            width: 8000,
-            height: 8000
-          },
-          analysis: {
-            status: 'completed',
-            image: {
-               width: 8000,
-               height: 8000,
-               hasGps: true
-            }
-          }
+          size: 45000000,
+          metadata: { source: 'WebODM Simulation', width: 8000, height: 8000 },
+          analysis: { status: 'completed', image: { width: 8000, height: 8000, hasGps: true } }
         })
       })
       toast.success('Fichiers enregistrés dans la Base de Données !')
     } catch(err) {
       console.error(err)
     }
+  }
+
+  // Export job report in the chosen format
+  const exportJobReport = (format: 'html' | 'json' | 'csv') => {
+    const jobData = {
+      project: projectName,
+      quality,
+      imagesCount: images.length,
+      imageNames: images.map(i => i.name),
+      stages: ODM_STAGES.map((s, idx) => ({
+        name: s.name,
+        status: idx < currentStageIndex ? 'completed' : idx === currentStageIndex ? 'in_progress' : 'pending',
+      })),
+      logsCount: consoleLogs.length,
+      completedAt: new Date().toISOString(),
+      outputs: [
+        { name: `${projectName}_Pointcloud.laz`, type: 'Point Cloud', points: '3,500,200', density: '42.5 pts/m²' },
+        { name: `${projectName}_Orthophoto.tif`, type: 'GeoTIFF Orthophoto', dimensions: '8000 × 8000 px', hasGPS: true },
+      ],
+    }
+
+    if (format === 'html') {
+      exportHTMLReport(
+        `Rapport de traitement — ${projectName}`,
+        [
+          { heading: 'Configuration du job', rows: [
+            ['Projet', projectName],
+            ['Qualité', quality],
+            ['Nombre d\'images', String(images.length)],
+            ['Date de complétion', new Date().toLocaleString('fr-FR')],
+          ]},
+          { heading: 'Fichiers générés', rows: [
+            [`${projectName}_Pointcloud.laz`, '154 Mo | 3 500 200 pts | 42.5 pts/m²'],
+            [`${projectName}_Orthophoto.tif`, '45 Mo | 8000×8000 px | GPS intégré'],
+          ]},
+          { heading: 'Étapes du pipeline ODM', rows: ODM_STAGES.map(s => [s.name, 'Complété ✅'] as [string, string]) },
+        ],
+        `rapport_job_${projectName}_${Date.now()}.html`
+      )
+    } else if (format === 'json') {
+      exportJSON(jobData, `rapport_job_${projectName}_${Date.now()}.json`)
+    } else if (format === 'csv') {
+      const rows = consoleLogs.map((log, i) => ({ Index: i + 1, Log: log }))
+      exportCSV(rows, `logs_job_${projectName}_${Date.now()}.csv`)
+    }
+    toast.success(`Rapport ${format.toUpperCase()} téléchargé`)
   }
 
   return (
@@ -407,20 +439,40 @@ export default function ProcessingPage() {
                 animate={{ opacity: 1, y: 0 }}
               >
                 <Card className="border-green-500/30 bg-green-500/5">
-                  <CardContent className="p-6 flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-bold text-green-500 flex items-center gap-2">
-                        <Check className="h-6 w-6" /> Traitement Réussi !
-                      </h3>
-                      <p className="text-sm mt-1">Vos données ont été sauvegardées dans la base de données. Vous pouvez y accéder dans la visionneuse Média et 3D.</p>
-                    </div>
-                    <div className="flex gap-3">
-                      <Button variant="outline" className="gap-2">
-                        <Archive className="h-4 w-4" /> Sauvegardes brutes
-                      </Button>
-                      <Button onClick={() => window.location.href = '/dashboard/point-cloud'} className="bg-green-600 hover:bg-green-700">
-                        Aller à la visionneuse 3D
-                      </Button>
+                  <CardContent className="p-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <h3 className="text-lg font-bold text-green-500 flex items-center gap-2">
+                          <Check className="h-6 w-6" /> Traitement Réussi !
+                        </h3>
+                        <p className="text-sm mt-1">Vos données ont été sauvegardées dans la base de données. Vous pouvez y accéder dans la visionneuse Média et 3D.</p>
+                      </div>
+                      <div className="flex flex-wrap gap-3">
+                        {/* Export report */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" className="gap-2">
+                              <FileDown className="h-4 w-4" /> Exporter rapport
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuLabel className="text-xs text-muted-foreground">Format du rapport</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => exportJobReport('html')} className="gap-2 cursor-pointer">
+                              <FileText className="h-4 w-4 text-blue-500" /> Rapport HTML
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => exportJobReport('json')} className="gap-2 cursor-pointer">
+                              <FileCode2 className="h-4 w-4 text-green-500" /> Résumé JSON
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => exportJobReport('csv')} className="gap-2 cursor-pointer">
+                              <Table className="h-4 w-4 text-orange-500" /> Logs CSV
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        <Button onClick={() => window.location.href = '/dashboard/point-cloud'} className="bg-green-600 hover:bg-green-700">
+                          Aller à la visionneuse 3D
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

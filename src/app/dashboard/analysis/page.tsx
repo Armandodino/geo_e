@@ -31,8 +31,14 @@ import {
   Layers,
   Plus,
   Minus,
+  FileDown,
+  Table,
+  FileCode2,
+  Globe,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu'
+import { exportJSON, exportCSV, exportGeoJSON, exportHTMLReport, exportTextReport } from '@/lib/export-utils'
 import {
   calculateDistance,
   calculateTotalDistance,
@@ -467,26 +473,88 @@ export default function AnalysisPage() {
     toast.success('Réinitialisé')
   }
 
-  // Export results
-  const exportResults = () => {
+  // Export results — multiple formats
+  const exportResults = (format: 'json' | 'csv' | 'geojson' | 'html' | 'txt' = 'json') => {
     if (!results) return
-    
-    const data = {
-      type: results.type,
-      value: results.value,
-      formatted: results.formatted,
-      inputs: results.inputs,
-      timestamp: results.timestamp.toISOString(),
+    const ts = results.timestamp.toISOString()
+
+    if (format === 'json') {
+      exportJSON({
+        type: results.type, value: results.value, formatted: results.formatted,
+        unit: results.unit, inputs: results.inputs, timestamp: ts,
+        system: 'WGS84', method: 'Géodésique', precision: '±0.5%'
+      }, `analyse_${results.type}_${Date.now()}.json`)
     }
-    
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `analysis-${results.type}-${Date.now()}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success('Résultats exportés')
+
+    else if (format === 'csv') {
+      // Flatten inputs into rows
+      const rows: Record<string, unknown>[] = []
+      if (Array.isArray(results.inputs.points)) {
+        ;(results.inputs.points as {lat:number;lng:number}[]).forEach((p, i) =>
+          rows.push({ Index: i+1, Latitude: p.lat, Longitude: p.lng })
+        )
+      } else {
+        rows.push({ Clé: 'Résultat', Valeur: results.formatted, Unité: results.unit })
+        Object.entries(results.inputs).forEach(([k,v]) => rows.push({Clé: k, Valeur: String(v), Unité: ''}))
+      }
+      rows.push({ Clé: '--- Résultat final ---', Valeur: results.formatted, Unité: results.unit })
+      exportCSV(rows, `analyse_${results.type}_${Date.now()}.csv`)
+    }
+
+    else if (format === 'geojson') {
+      const pts = (results.inputs.points as {lat:number;lng:number}[] | undefined) ?? []
+      if (pts.length === 0) { toast.error('Pas de points à exporter en GeoJSON'); return }
+      const geoType = pts.length === 1 ? 'Point' : results.type === 'area' || results.type === 'perimeter' || results.type === 'centroid' ? 'Polygon' : 'LineString'
+      exportGeoJSON(
+        pts.map(p => ({...p})),
+        geoType as 'Point' | 'LineString' | 'Polygon',
+        { type: results.type, result: results.formatted, timestamp: ts },
+        `analyse_${results.type}_${Date.now()}.geojson`
+      )
+    }
+
+    else if (format === 'html') {
+      const inputRows: [string, string][] = Object.entries(results.inputs)
+        .flatMap(([k,v]) => {
+          if (Array.isArray(v)) return (v as {lat:number;lng:number}[]).map((p,i): [string,string] => [`Point ${i+1}`, `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`])
+          return [[k, String(v)] as [string, string]]
+        })
+      exportHTMLReport(
+        `Analyse spatiale — ${results.type}`,
+        [
+          { heading: 'Résultat principal', rows: [['Valeur', results.formatted], ['Unité', results.unit], ['Date', new Date(ts).toLocaleString('fr-FR')]] },
+          { heading: 'Paramètres de calcul', rows: inputRows },
+          { heading: 'Métadonneau', rows: [['Système', 'WGS84'], ['Méthode', 'Géodésique'], ['Précision', '±0.5%']] }
+        ],
+        `rapport_analyse_${results.type}_${Date.now()}.html`
+      )
+    }
+
+    else if (format === 'txt') {
+      exportTextReport(
+        [
+          { title: 'Résultat', lines: [`Type : ${results.type}`, `Valeur : ${results.formatted}`, `Unité : ${results.unit}`, `Date : ${new Date(ts).toLocaleString('fr-FR')}`] },
+          { title: 'Métadonneau', lines: ['Système : WGS84', 'Méthode : Géodésique', 'Précision : ±0.5%'] },
+        ],
+        `rapport_analyse_${results.type}_${Date.now()}.txt`
+      )
+    }
+
+    toast.success(`Export ${format.toUpperCase()} généré`)
+  }
+
+  // Export full history
+  const exportHistory = (format: 'json' | 'csv') => {
+    if (history.length === 0) { toast.error('Aucune analyse dans l\'historique'); return }
+    if (format === 'json') {
+      exportJSON(history, `historique_analyses_${Date.now()}.json`)
+    } else {
+      exportCSV(
+        history.map(h => ({ ID: h.id, Nom: h.name, Type: h.type, Résultat: h.result, Date: h.date })),
+        `historique_analyses_${Date.now()}.csv`
+      )
+    }
+    toast.success(`Historique exporté en ${format.toUpperCase()}`)
   }
 
   return (
@@ -1053,10 +1121,34 @@ export default function AnalysisPage() {
                             <RotateCcw className="h-4 w-4" />
                             Réinitialiser
                           </Button>
-                          <Button variant="outline" className="flex-1 gap-2" onClick={exportResults}>
-                            <Download className="h-4 w-4" />
-                            Exporter
-                          </Button>
+                          {/* Multi-format export dropdown */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="outline" className="flex-1 gap-2">
+                                <FileDown className="h-4 w-4" />
+                                Exporter
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-52">
+                              <DropdownMenuLabel className="text-xs text-muted-foreground">Format d'export</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => exportResults('html')} className="gap-2 cursor-pointer">
+                                <FileText className="h-4 w-4 text-blue-500" /> Rapport HTML
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => exportResults('json')} className="gap-2 cursor-pointer">
+                                <FileCode2 className="h-4 w-4 text-green-500" /> JSON
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => exportResults('csv')} className="gap-2 cursor-pointer">
+                                <Table className="h-4 w-4 text-orange-500" /> CSV
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => exportResults('geojson')} className="gap-2 cursor-pointer">
+                                <Globe className="h-4 w-4 text-teal-500" /> GeoJSON
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => exportResults('txt')} className="gap-2 cursor-pointer">
+                                <Download className="h-4 w-4 text-gray-500" /> Rapport TXT
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
 
                         <Separator />
@@ -1115,7 +1207,26 @@ export default function AnalysisPage() {
 
               <TabsContent value="history" className="flex-1 m-0 p-6 overflow-auto">
                 <div className="space-y-4">
-                  <h4 className="font-semibold">Analyses récentes</h4>
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold">Analyses récentes</h4>
+                    {history.length > 0 && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" className="gap-2">
+                            <FileDown className="h-3.5 w-3.5" /> Exporter historique
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuItem onClick={() => exportHistory('csv')} className="gap-2 cursor-pointer">
+                            <Table className="h-4 w-4" /> CSV
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => exportHistory('json')} className="gap-2 cursor-pointer">
+                            <FileCode2 className="h-4 w-4" /> JSON
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
                   {history.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
                       <Clock className="h-8 w-8 mx-auto mb-2 opacity-50" />

@@ -40,7 +40,9 @@ import {
 import { FileUpload } from '@/components/file-upload'
 import { useFileStore, formatFileSize, formatAnalysisSummary, type GeoFile, type FileAnalysis } from '@/lib/file-store'
 import { toast } from 'sonner'
-import { BarChart3, MapPin, Ruler, Box, Layers } from 'lucide-react'
+import { BarChart3, MapPin, Ruler, Box, Layers, FileDown, Table, FileCode2 } from 'lucide-react'
+import { exportJSON, exportCSV, exportHTMLReport } from '@/lib/export-utils'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu'
 
 // File type icons and colors
 const getFileIcon = (type: string) => {
@@ -496,6 +498,68 @@ export default function MediaPage() {
     }
   }, [])
 
+  // Export all files as CSV
+  const exportFilesCSV = useCallback(() => {
+    const rows = filteredFiles.map(f => ({
+      Nom: f.name,
+      Type: f.type,
+      Taille: formatFileSize(f.size),
+      Date: f.createdAt.toLocaleDateString('fr-FR'),
+      Statut: f.analysis?.status ?? 'N/A',
+      Résumé: f.analysis ? formatAnalysisSummary(f.analysis) : '',
+    }))
+    exportCSV(rows, `bibliotheque_fichiers_${new Date().toISOString().substring(0,10)}.csv`)
+    toast.success(`${rows.length} fichiers exportés en CSV`)
+  }, [filteredFiles])
+
+  // Export all files as JSON
+  const exportFilesJSON = useCallback(() => {
+    const data = filteredFiles.map(f => ({
+      id: f.id,
+      name: f.name,
+      type: f.type,
+      sizeBytes: f.size,
+      formattedSize: formatFileSize(f.size),
+      createdAt: f.createdAt.toISOString(),
+      url: f.url,
+      analysis: f.analysis,
+      metadata: f.metadata,
+    }))
+    exportJSON(data, `bibliotheque_fichiers_${new Date().toISOString().substring(0,10)}.json`)
+    toast.success(`${data.length} fichiers exportés en JSON`)
+  }, [filteredFiles])
+
+  // Export selected file as HTML report
+  const exportFileReport = useCallback((file: GeoFile) => {
+    const sections = [
+      {
+        heading: 'Informations générales',
+        rows: [
+          ['Nom', file.name],
+          ['Type', file.type.toUpperCase()],
+          ['Taille', formatFileSize(file.size)],
+          ['Date d\'import', file.createdAt.toLocaleDateString('fr-FR')],
+        ] as [string, string][]
+      },
+    ]
+    if (file.analysis?.status === 'completed') {
+      const a = file.analysis
+      const analysisRows: [string, string][] = [['Statut', 'Analyse complète']]
+      if (a.pointCloud?.pointCount) analysisRows.push(['Points', a.pointCloud.pointCount.toLocaleString()])
+      if (a.pointCloud?.avgDensity) analysisRows.push(['Densité', `${a.pointCloud.avgDensity.toFixed(2)} pts/m²`])
+      if (a.image?.width) analysisRows.push(['Dimensions', `${a.image.width} × ${a.image.height} px`])
+      if (a.geometry?.featureCount) analysisRows.push(['Éléments', String(a.geometry.featureCount)])
+      if (a.geometry?.totalArea) analysisRows.push(['Surface', `${(a.geometry.totalArea / 10000).toFixed(2)} ha`])
+      if (a.boundingBox) {
+        analysisRows.push(['Zone Lat', `${a.boundingBox.minLat.toFixed(4)}° — ${a.boundingBox.maxLat.toFixed(4)}°`])
+        analysisRows.push(['Zone Lng', `${a.boundingBox.minLng.toFixed(4)}° — ${a.boundingBox.maxLng.toFixed(4)}°`])
+      }
+      sections.push({ heading: 'Résultats d\'analyse', rows: analysisRows })
+    }
+    exportHTMLReport(`Rapport – ${file.name}`, sections, `rapport_${file.name.replace(/\s/g,'_')}.html`)
+    toast.success('Rapport HTML généré')
+  }, [])
+
   // Render preview based on file type
   const renderPreview = () => {
     if (!selectedFile || !selectedFile.url) return null
@@ -545,6 +609,25 @@ export default function MediaPage() {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
+          {/* Export dropdown for the whole library */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2" disabled={filteredFiles.length === 0}>
+                <FileDown className="h-4 w-4" />
+                Exporter bibliothèque
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel className="text-xs text-muted-foreground">Format</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={exportFilesCSV} className="gap-2 cursor-pointer">
+                <Table className="h-4 w-4" /> Tableau CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={exportFilesJSON} className="gap-2 cursor-pointer">
+                <FileCode2 className="h-4 w-4" /> JSON complet
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button variant="outline" size="icon" onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}>
             {viewMode === 'grid' ? <List className="h-4 w-4" /> : <Grid className="h-4 w-4" />}
           </Button>
@@ -871,8 +954,34 @@ export default function MediaPage() {
                 <div className="space-y-2">
                   <Button className="w-full gap-2" onClick={() => downloadFile(selectedFile)}>
                     <Download className="h-4 w-4" />
-                    Télécharger
+                    Télécharger le fichier
                   </Button>
+                  {/* Export report for the selected file */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="w-full gap-2">
+                        <FileDown className="h-4 w-4" />
+                        Exporter fiche
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">Format</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => exportFileReport(selectedFile)} className="gap-2 cursor-pointer">
+                        <FileText className="h-4 w-4 text-blue-500" /> Rapport HTML
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => {
+                        exportJSON({
+                          name: selectedFile.name, type: selectedFile.type,
+                          size: selectedFile.size, createdAt: selectedFile.createdAt,
+                          analysis: selectedFile.analysis, metadata: selectedFile.metadata
+                        }, `fiche_${selectedFile.name}.json`)
+                        toast.success('Fiche JSON exportée')
+                      }} className="gap-2 cursor-pointer">
+                        <FileCode2 className="h-4 w-4 text-green-500" /> JSON
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button 
                     variant="outline" 
                     className="w-full gap-2 text-destructive" 
