@@ -111,6 +111,7 @@ export interface FileStore {
   error: string | null
   
   // Actions
+  fetchFiles: () => Promise<void>
   addFile: (file: Omit<GeoFile, 'id' | 'createdAt' | 'updatedAt'>) => string
   updateFile: (id: string, updates: Partial<GeoFile>) => void
   updateFileAnalysis: (id: string, analysis: FileAnalysis) => void
@@ -131,6 +132,29 @@ export const useFileStore = create<FileStore>((set, get) => ({
   isLoading: false,
   error: null,
 
+  fetchFiles: async () => {
+    set({ isLoading: true, error: null })
+    try {
+      const res = await fetch('/api/files')
+      if (!res.ok) throw new Error('Erreur de chargement')
+      const data = await res.json()
+      if (data.files) {
+        set({
+          files: data.files.map((f: any) => ({
+            ...f,
+            createdAt: new Date(f.createdAt),
+            updatedAt: new Date(f.updatedAt)
+          }))
+        })
+      }
+    } catch (error) {
+      console.error(error)
+      set({ error: 'Erreur lors de la récupération des fichiers' })
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
   addFile: (file) => {
     const id = uuidv4()
     const now = new Date()
@@ -143,7 +167,17 @@ export const useFileStore = create<FileStore>((set, get) => ({
         status: 'pending'
       }
     }
+    
+    // Optimistic UI
     set((state) => ({ files: [...state.files, newFile] }))
+    
+    // Background DB save
+    fetch('/api/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newFile)
+    }).catch(console.error)
+    
     return id
   },
 
@@ -155,6 +189,12 @@ export const useFileStore = create<FileStore>((set, get) => ({
           : file
       ),
     }))
+    // Background DB save
+    fetch(`/api/files?id=${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    }).catch(console.error)
   },
 
   updateFileAnalysis: (id, analysis) => {
@@ -169,6 +209,12 @@ export const useFileStore = create<FileStore>((set, get) => ({
           : file
       ),
     }))
+    // Background DB save
+    fetch(`/api/files?id=${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ analysis })
+    }).catch(console.error)
   },
 
   removeFile: (id) => {
@@ -176,6 +222,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
       files: state.files.filter((file) => file.id !== id),
       selectedFileId: state.selectedFileId === id ? null : state.selectedFileId,
     }))
+    fetch(`/api/files?id=${id}`, { method: 'DELETE' }).catch(console.error)
   },
 
   selectFile: (id) => {

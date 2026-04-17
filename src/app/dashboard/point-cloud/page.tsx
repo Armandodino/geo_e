@@ -540,8 +540,12 @@ export default function PointCloudPage() {
   const [isMetadataOpen, setIsMetadataOpen] = useState(true)
   const [useLightViewer, setUseLightViewer] = useState(false)
   
-  const { files, removeFile } = useFileStore()
+  const { files, removeFile, fetchFiles } = useFileStore()
   const pointCloudFiles = files.filter(f => f.type === 'las' || f.type === 'laz')
+
+  useEffect(() => {
+    fetchFiles()
+  }, [fetchFiles])
 
   // Close metadata panel on mobile
   useEffect(() => {
