@@ -31,6 +31,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { parse } from '@loaders.gl/core'
 import { LASLoader } from '@loaders.gl/las'
 
+type ColorMode = 'rgb' | 'height' | 'intensity' | 'classification'
+
 interface PointCloudViewerProps {
   className?: string
   height?: string
@@ -264,12 +266,17 @@ export function PotreeViewerComponent({
   const [loadProgress, setLoadProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [pointSize, setPointSize] = useState(2)
+  const [colorMode, setColorMode] = useState<ColorMode>('rgb')
   const [activeTool, setActiveTool] = useState<string | null>(null)
   const [currentScene, setCurrentScene] = useState('terrain')
   const [pointCount, setPointCount] = useState(0)
   const [isRealFile, setIsRealFile] = useState(false)
   const [measurementValue, setMeasurementValue] = useState<string | null>(null)
   const [viewerTheme, setViewerTheme] = useState<'dark' | 'light'>('dark')
+
+  // Store raw positions + original RGB colors for re-coloring
+  const rawPositionsRef = useRef<Float32Array | null>(null)
+  const rawColorsRef = useRef<Float32Array | null>(null)
 
   // Initialize Three.js scene
   useEffect(() => {
@@ -399,6 +406,10 @@ export function PotreeViewerComponent({
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
 
+      // Store raw data for re-coloring
+      rawPositionsRef.current = positions
+      rawColorsRef.current = colors
+
       const material = new THREE.PointsMaterial({
         size: pointSize,
         vertexColors: true,
@@ -427,24 +438,26 @@ export function PotreeViewerComponent({
     }
 
     setIsLoading(false)
-  }, [pointSize, onPointCloudLoad])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onPointCloudLoad]) // Note: pointSize handled by separate effect
 
   // Load file when URL changes
   useEffect(() => {
-    if (isLoading || !sceneRef.current) return;
+    // Don't gate on isLoading — that was blocking demo re-loads
+    if (!sceneRef.current) return;
     
-    // We combine the URL sources to detect a change if either updates
     const targetUrl = (fileUrl && fileUrl.includes('.html')) ? (rawUrl || null) : fileUrl;
     
     if (loadedUrlRef.current !== targetUrl) {
       loadedUrlRef.current = targetUrl;
+      setColorMode('rgb') // Reset color mode on new load
       if (targetUrl) {
         loadPointCloud(targetUrl);
       } else {
         loadPointCloud(null, 'terrain');
       }
     }
-  }, [isLoading, fileUrl, rawUrl, loadPointCloud])
+  }, [fileUrl, rawUrl, loadPointCloud])
 
   // Update point size
   useEffect(() => {
@@ -452,6 +465,67 @@ export function PotreeViewerComponent({
       (pointCloudRef.current.material as THREE.PointsMaterial).size = pointSize
     }
   }, [pointSize])
+
+  // Apply color mode whenever it changes
+  useEffect(() => {
+    if (!pointCloudRef.current || !rawPositionsRef.current || !rawColorsRef.current) return
+    const count = rawPositionsRef.current.length / 3
+    const newColors = new Float32Array(count * 3)
+    const positions = rawPositionsRef.current
+    const originalColors = rawColorsRef.current
+
+    if (colorMode === 'rgb') {
+      // Restore original RGB colors
+      newColors.set(originalColors)
+    } else if (colorMode === 'height') {
+      // Height-based: blue (low) -> green -> red (high)
+      let minY = Infinity, maxY = -Infinity
+      for (let i = 0; i < count; i++) { 
+        const y = positions[i * 3 + 1]
+        minY = Math.min(minY, y)
+        maxY = Math.max(maxY, y)
+      }
+      const range = maxY - minY || 1
+      for (let i = 0; i < count; i++) {
+        const t = (positions[i * 3 + 1] - minY) / range // 0..1
+        // Blue -> Cyan -> Green -> Yellow -> Red
+        if (t < 0.25) { newColors[i*3]=0; newColors[i*3+1]=t*4; newColors[i*3+2]=1 }
+        else if (t < 0.5) { newColors[i*3]=0; newColors[i*3+1]=1; newColors[i*3+2]=1-(t-0.25)*4 }
+        else if (t < 0.75) { newColors[i*3]=(t-0.5)*4; newColors[i*3+1]=1; newColors[i*3+2]=0 }
+        else { newColors[i*3]=1; newColors[i*3+1]=1-(t-0.75)*4; newColors[i*3+2]=0 }
+      }
+    } else if (colorMode === 'intensity') {
+      // Grayscale based on original luminance
+      for (let i = 0; i < count; i++) {
+        const lum = originalColors[i*3]*0.299 + originalColors[i*3+1]*0.587 + originalColors[i*3+2]*0.114
+        newColors[i*3] = lum; newColors[i*3+1] = lum; newColors[i*3+2] = lum
+      }
+    } else if (colorMode === 'classification') {
+      // Pseudo-classification by height quartiles: ground, low-veg, high-veg, buildings
+      const palette = [
+        [0.52, 0.37, 0.26], // ground: brown
+        [0.20, 0.70, 0.20], // low vegetation: light green
+        [0.06, 0.44, 0.12], // high vegetation: dark green
+        [0.20, 0.45, 0.90], // buildings: blue
+      ]
+      let minY = Infinity, maxY = -Infinity
+      for (let i = 0; i < count; i++) {
+        const y = positions[i * 3 + 1]
+        minY = Math.min(minY, y); maxY = Math.max(maxY, y)
+      }
+      const range = maxY - minY || 1
+      for (let i = 0; i < count; i++) {
+        const t = (positions[i * 3 + 1] - minY) / range
+        const cls = t < 0.05 ? 0 : t < 0.25 ? 1 : t < 0.70 ? 2 : 3
+        const [r,g,b] = palette[cls]
+        newColors[i*3] = r; newColors[i*3+1] = g; newColors[i*3+2] = b
+      }
+    }
+
+    const attr = pointCloudRef.current.geometry.getAttribute('color') as THREE.BufferAttribute
+    attr.array.set(newColors)
+    attr.needsUpdate = true
+  }, [colorMode])
 
   // Update theme background
   useEffect(() => {
@@ -664,6 +738,25 @@ export function PotreeViewerComponent({
                 className="w-20"
               />
               <span className="text-xs text-white w-6">{pointSize}</span>
+            </div>
+            {/* Color mode buttons */}
+            <div>
+              <span className="text-[10px] text-white/60 uppercase tracking-wider block mb-1.5">Couleurs</span>
+              <div className="grid grid-cols-2 gap-1">
+                {(['rgb','height','intensity','classification'] as ColorMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setColorMode(mode)}
+                    className={`text-[10px] px-2 py-1 rounded transition-all font-medium ${
+                      colorMode === mode
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-white/10 text-white/70 hover:bg-white/20 hover:text-white'
+                    }`}
+                  >
+                    {mode === 'rgb' ? 'RGB' : mode === 'height' ? 'Altitude' : mode === 'intensity' ? 'Intensité' : 'Classes'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </Card>
