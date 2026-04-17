@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
+  Layers,
 } from 'lucide-react'
 import { useState } from 'react'
 import Image from 'next/image'
@@ -45,6 +46,11 @@ const sidebarItems = [
     title: 'Outils d\'analyse',
     href: '/dashboard/analysis',
     icon: Ruler,
+  },
+  {
+    title: 'Traitement (Photogrammétrie)',
+    href: '/dashboard/processing',
+    icon: Layers,
   },
 ]
 

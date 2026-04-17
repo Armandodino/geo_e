@@ -345,50 +345,53 @@ function DataPanel({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex-1 flex flex-col overflow-hidden p-2"
+            className="flex-1 flex flex-col overflow-hidden p-2 h-full"
           >
-            {/* Demo scenes */}
-            <div className="mb-2">
-              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 px-1">
-                Démo
-              </h3>
-              <div className="space-y-1">
-                {DEMO_POINT_CLOUDS.map((demo) => (
-                  <ThumbnailCard
-                    key={demo.id}
-                    data={demo}
-                    isSelected={selectedDemo.id === demo.id && !selectedFile}
-                    onClick={() => {
-                      onSelectDemo(demo)
-                      onSelectFile(null)
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Uploaded files */}
-            {pointCloudFiles.length > 0 && (
-              <div className="mb-2">
-                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 px-1">
-                  Fichiers ({pointCloudFiles.length})
+            {/* Scrollable Container for lists */}
+            <div className="flex-1 overflow-y-auto pr-1 pb-2 space-y-4 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+              {/* Demo scenes */}
+              <div>
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 px-1">
+                  Démo
                 </h3>
                 <div className="space-y-1">
-                  {pointCloudFiles.map((file) => (
-                    <FileThumbnail
-                      key={file.id}
-                      file={file}
-                      isSelected={selectedFile?.id === file.id}
-                      onClick={() => onSelectFile(file)}
-                      onDelete={(e) => onDeleteFile(e, file.id)}
+                  {DEMO_POINT_CLOUDS.map((demo) => (
+                    <ThumbnailCard
+                      key={demo.id}
+                      data={demo}
+                      isSelected={selectedDemo.id === demo.id && !selectedFile}
+                      onClick={() => {
+                        onSelectDemo(demo)
+                        onSelectFile(null)
+                      }}
                     />
                   ))}
                 </div>
               </div>
-            )}
 
-            {/* Upload */}
-            <div className="mt-auto pt-2 border-t">
+              {/* Uploaded files */}
+              {pointCloudFiles.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 px-1 flex items-center justify-between">
+                    <span>Fichiers ({pointCloudFiles.length})</span>
+                  </h3>
+                  <div className="space-y-1">
+                    {pointCloudFiles.map((file) => (
+                      <FileThumbnail
+                        key={file.id}
+                        file={file}
+                        isSelected={selectedFile?.id === file.id}
+                        onClick={() => onSelectFile(file)}
+                        onDelete={(e) => onDeleteFile(e, file.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Upload - Fixed at bottom */}
+            <div className="mt-2 pt-2 border-t flex-shrink-0">
               <p className="text-[10px] text-muted-foreground mb-1 px-1">LAS, LAZ (max 500 Mo)</p>
               <CompactFileUpload
                 acceptedTypes={['.las', '.laz']}
@@ -475,7 +478,7 @@ function MetadataPanel({
       className="h-full bg-black/80 backdrop-blur-sm overflow-hidden flex flex-col border-l border-white/10"
     >
       {isOpen && (
-        <div className="p-3 text-white text-sm">
+        <div className="p-3 text-white text-sm overflow-y-auto h-full scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-medium text-xs uppercase tracking-wider">Infos</h3>
             <Button
@@ -488,7 +491,7 @@ function MetadataPanel({
             </Button>
           </div>
 
-          <p className="font-semibold text-sm truncate mb-2">{displayData.name}</p>
+          <p className="font-semibold text-sm truncate mb-2" title={displayData.name}>{displayData.name}</p>
 
           {/* Stats - compact */}
           <div className="space-y-1.5 text-xs">
@@ -498,11 +501,11 @@ function MetadataPanel({
             </div>
             <div className="flex justify-between">
               <span className="text-white/60">Emprise</span>
-              <span>{displayData.extent}</span>
+              <span className="truncate ml-2" title={displayData.extent}>{displayData.extent}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-white/60">Élévation</span>
-              <span>{displayData.elevation}</span>
+              <span className="truncate ml-2" title={displayData.elevation}>{displayData.elevation}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-white/60">Taille</span>
@@ -516,11 +519,11 @@ function MetadataPanel({
 
           {/* Features */}
           {!file && data?.features && data.features.length > 0 && (
-            <div className="mt-3 pt-2 border-t border-white/10">
-              <p className="text-xs text-white/60 mb-1">Éléments</p>
-              <div className="flex flex-wrap gap-1">
+            <div className="mt-3 pt-2 border-t border-white/10 pb-4">
+              <p className="text-xs text-white/60 mb-2">Éléments détectés</p>
+              <div className="flex flex-wrap gap-1.5">
                 {data.features.map((feature, i) => (
-                  <Badge key={i} variant="outline" className="text-[10px] px-1 py-0 border-white/30 text-white">
+                  <Badge key={i} variant="outline" className="text-[10px] px-1.5 py-0 border-white/30 text-white truncate max-w-full" title={feature}>
                     {feature}
                   </Badge>
                 ))}

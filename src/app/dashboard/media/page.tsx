@@ -684,7 +684,7 @@ export default function MediaPage() {
                 </div>
 
                 {/* File info */}
-                <div className="space-y-3">
+                <div className="space-y-3 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 scrollbar-track-transparent min-h-0">
                   <div>
                     <p className="font-medium truncate">{selectedFile.name}</p>
                     <p className="text-sm text-muted-foreground">

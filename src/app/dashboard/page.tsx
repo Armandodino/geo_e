@@ -16,7 +16,7 @@ import {
   TrendingUp,
   HardDrive,
   FileText,
-  Plus,
+  Layers,
   ArrowRight
 } from 'lucide-react'
 
@@ -102,10 +102,10 @@ const quickActions = [
     color: 'bg-primary',
   },
   {
-    title: 'Nouveau projet',
-    description: 'Créer un nouveau projet',
-    icon: Plus,
-    href: '/dashboard',
+    title: 'Traitement 3D (ODM)',
+    description: 'De l\'image au nuage dense',
+    icon: Layers,
+    href: '/dashboard/processing',
     color: 'bg-primary',
   },
   {

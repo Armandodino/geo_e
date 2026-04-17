@@ -51,7 +51,7 @@ import {
 
 // Dynamic import for map viewer
 const MapViewer = dynamic(
-  () => import('@/components/map-viewer').then(mod => mod.MapViewer),
+  () => import('@/components/map-viewer'),
   { 
     ssr: false,
     loading: () => (
