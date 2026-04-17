@@ -278,6 +278,12 @@ export function PotreeViewerComponent({
   const rawPositionsRef = useRef<Float32Array | null>(null)
   const rawColorsRef = useRef<Float32Array | null>(null)
 
+  // Measurement state
+  const activeToolRef = useRef<string | null>(null) // mirror for click handler closure
+  const measurePointsRef = useRef<THREE.Vector3[]>([]) // accumulated click points
+  const measureMarkersRef = useRef<THREE.Object3D[]>([]) // visual markers to dispose
+  const [measureResult, setMeasureResult] = useState<{ label: string; value: string; points: {x:number;y:number;z:number}[] } | null>(null)
+
   // Initialize Three.js scene
   useEffect(() => {
     if (!containerRef.current) return
@@ -598,15 +604,166 @@ export function PotreeViewerComponent({
     }
   }, [])
 
-  // Measurement tools
-  const activateTool = useCallback((tool: string) => {
-    setActiveTool(activeTool === tool ? null : tool)
-    setMeasurementValue(null)
-    
-    if (tool !== activeTool) {
-      toast.info(`Outil ${tool} activé`)
+  // ─── Measurement Tools Engine ─────────────────────────────────────────────
+
+  // Clear all measurement markers from scene
+  const clearMeasureMarkers = useCallback(() => {
+    measureMarkersRef.current.forEach(obj => {
+      sceneRef.current?.remove(obj)
+      if ((obj as THREE.Mesh).geometry) (obj as THREE.Mesh).geometry.dispose()
+    })
+    measureMarkersRef.current = []
+    measurePointsRef.current = []
+    setMeasureResult(null)
+  }, [])
+
+  // Add a sphere marker at a 3D position
+  const addMarker = useCallback((pos: THREE.Vector3, color = 0xff4400, radius = 0.5) => {
+    if (!sceneRef.current) return
+    const geo = new THREE.SphereGeometry(radius, 8, 8)
+    const mat = new THREE.MeshBasicMaterial({ color })
+    const sphere = new THREE.Mesh(geo, mat)
+    sphere.position.copy(pos)
+    sceneRef.current.add(sphere)
+    measureMarkersRef.current.push(sphere)
+  }, [])
+
+  // Draw a line between two 3D points
+  const addLine = useCallback((a: THREE.Vector3, b: THREE.Vector3, color = 0xffdd00) => {
+    if (!sceneRef.current) return
+    const mat = new THREE.LineBasicMaterial({ color, linewidth: 2 })
+    const geo = new THREE.BufferGeometry().setFromPoints([a, b])
+    const line = new THREE.Line(geo, mat)
+    sceneRef.current.add(line)
+    measureMarkersRef.current.push(line)
+  }, [])
+
+  // Raycast a canvas click to the nearest point cloud point
+  const pickPoint = useCallback((e: MouseEvent): THREE.Vector3 | null => {
+    if (!containerRef.current || !cameraRef.current || !pointCloudRef.current) return null
+    const rect = containerRef.current.getBoundingClientRect()
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+    const raycaster = new THREE.Raycaster()
+    raycaster.params.Points = { threshold: 1.5 } // generous picking radius
+    raycaster.setFromCamera(new THREE.Vector2(x, y), cameraRef.current)
+    const hits = raycaster.intersectObject(pointCloudRef.current)
+    return hits.length > 0 ? hits[0].point.clone() : null
+  }, [])
+
+  // Handle canvas click according to active tool
+  const handleMeasureClick = useCallback((e: MouseEvent) => {
+    const tool = activeToolRef.current
+    if (!tool) return
+    const pt = pickPoint(e)
+    if (!pt) { toast.warning('Cliquez directement sur un point du nuage'); return }
+
+    if (tool === 'coords') {
+      clearMeasureMarkers()
+      addMarker(pt, 0x00ccff)
+      setMeasureResult({
+        label: 'Coordonnées',
+        value: `X: ${pt.x.toFixed(2)} | Y: ${pt.y.toFixed(2)} | Z: ${pt.z.toFixed(2)}`,
+        points: [{ x: pt.x, y: pt.y, z: pt.z }]
+      })
+      return
     }
-  }, [activeTool])
+
+    if (tool === 'height') {
+      clearMeasureMarkers()
+      const ground = new THREE.Vector3(pt.x, 0, pt.z)
+      addMarker(pt, 0xffaa00)
+      addMarker(ground, 0x888888, 0.3)
+      addLine(ground, pt, 0xffaa00)
+      setMeasureResult({
+        label: 'Hauteur',
+        value: `${Math.abs(pt.y).toFixed(2)} m`,
+        points: [{ x: pt.x, y: pt.y, z: pt.z }]
+      })
+      return
+    }
+
+    if (tool === 'distance') {
+      measurePointsRef.current.push(pt)
+      addMarker(pt, 0x00ff88)
+      const pts = measurePointsRef.current
+      if (pts.length >= 2) {
+        addLine(pts[pts.length - 2], pts[pts.length - 1], 0x00ff88)
+        let total = 0
+        for (let i = 1; i < pts.length; i++) total += pts[i - 1].distanceTo(pts[i])
+        setMeasureResult({
+          label: 'Distance totale',
+          value: `${total.toFixed(2)} m${pts.length > 2 ? ` (${pts.length - 1} segments)` : ''}`,
+          points: pts.map(p => ({ x: p.x, y: p.y, z: p.z }))
+        })
+      } else {
+        toast.info('Cliquez un 2è point pour mesurer la distance')
+      }
+      return
+    }
+
+    if (tool === 'area') {
+      measurePointsRef.current.push(pt)
+      const pts = measurePointsRef.current
+      addMarker(pt, 0xcc44ff)
+      if (pts.length >= 2) addLine(pts[pts.length - 2], pts[pts.length - 1], 0xcc44ff)
+      if (pts.length >= 3) {
+        // Close preview line back to first point
+        const existing = measureMarkersRef.current.filter(o => o instanceof THREE.Line && (o as THREE.Line).geometry.getAttribute('position').count === 2)
+        const lastPreview = existing[existing.length - 1] as THREE.Line | undefined
+        if (lastPreview) { sceneRef.current?.remove(lastPreview); measureMarkersRef.current.pop() }
+        addLine(pts[pts.length - 1], pts[0], 0x8822cc)
+
+        // Shoelace formula on XZ plane
+        let area = 0
+        const n = pts.length
+        for (let i = 0; i < n; i++) {
+          const j = (i + 1) % n
+          area += pts[i].x * pts[j].z - pts[j].x * pts[i].z
+        }
+        area = Math.abs(area) / 2
+        setMeasureResult({
+          label: `Surface (${pts.length} sommets)`,
+          value: area >= 10000 ? `${(area / 10000).toFixed(4)} ha` : `${area.toFixed(2)} m²`,
+          points: pts.map(p => ({ x: p.x, y: p.y, z: p.z }))
+        })
+      } else {
+        toast.info(`Ajoutez encore ${3 - pts.length} point(s) puis continuez`)
+      }
+      return
+    }
+  }, [pickPoint, clearMeasureMarkers, addMarker, addLine])
+
+  // Attach / detach click listener based on active tool
+  const activateTool = useCallback((tool: string) => {
+    const next = activeToolRef.current === tool ? null : tool
+    activeToolRef.current = next
+    setActiveTool(next)
+    clearMeasureMarkers()
+
+    if (next) {
+      const el = containerRef.current
+      if (el) el.addEventListener('click', handleMeasureClick)
+      const labels: Record<string, string> = {
+        distance: 'Cliquez pour placer les points (Distance)',
+        height: 'Cliquez sur un point pour mesurer sa hauteur',
+        area: 'Cliquez pour tracer le polygone (Surface)',
+        coords: 'Cliquez sur un point pour voir ses coordonnées',
+      }
+      toast.info(labels[next] || `Outil ${next} activé`)
+    } else {
+      const el = containerRef.current
+      if (el) el.removeEventListener('click', handleMeasureClick)
+    }
+  }, [clearMeasureMarkers, handleMeasureClick])
+
+  // Clean up listener when component unmounts or tool changes
+  useEffect(() => {
+    return () => {
+      const el = containerRef.current
+      if (el) el.removeEventListener('click', handleMeasureClick)
+    }
+  }, [handleMeasureClick])
 
   if (error) {
     return (
@@ -787,44 +944,71 @@ export function PotreeViewerComponent({
 
       {/* Measurement tools */}
       <div className="absolute bottom-4 right-4 pointer-events-auto z-20">
-        <Card className="p-2 bg-black/50 border-none">
+        <Card className="p-2 bg-black/70 border-none backdrop-blur">
+          <div className="text-[10px] text-white/50 text-center mb-1.5 uppercase tracking-wider">Mesures</div>
           <div className="flex items-center gap-1">
             <Button
               variant={activeTool === 'distance' ? 'default' : 'ghost'}
               size="icon"
               onClick={() => activateTool('distance')}
-              title="Mesure distance"
-              className={activeTool === 'distance' ? '' : 'text-white hover:text-white hover:bg-white/20'}
+              title="Distance: cliquez plusieurs points"
+              className={`relative group ${activeTool === 'distance' ? 'bg-green-500 hover:bg-green-600' : 'text-white hover:text-white hover:bg-white/20'}`}
             >
               <Ruler className="h-4 w-4" />
+              <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] px-2 py-0.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                Distance
+              </span>
             </Button>
             <Button
               variant={activeTool === 'height' ? 'default' : 'ghost'}
               size="icon"
               onClick={() => activateTool('height')}
-              title="Mesure hauteur"
-              className={activeTool === 'height' ? '' : 'text-white hover:text-white hover:bg-white/20'}
+              title="Hauteur: cliquez un point"
+              className={`relative group ${activeTool === 'height' ? 'bg-orange-500 hover:bg-orange-600' : 'text-white hover:text-white hover:bg-white/20'}`}
             >
               <Mountain className="h-4 w-4" />
+              <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] px-2 py-0.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                Hauteur
+              </span>
             </Button>
             <Button
               variant={activeTool === 'area' ? 'default' : 'ghost'}
               size="icon"
               onClick={() => activateTool('area')}
-              title="Mesure surface"
-              className={activeTool === 'area' ? '' : 'text-white hover:text-white hover:bg-white/20'}
+              title="Surface: cliquez 3+ points"
+              className={`relative group ${activeTool === 'area' ? 'bg-purple-500 hover:bg-purple-600' : 'text-white hover:text-white hover:bg-white/20'}`}
             >
               <Square className="h-4 w-4" />
+              <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] px-2 py-0.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                Surface
+              </span>
             </Button>
             <Button
-              variant={activeTool === 'angle' ? 'default' : 'ghost'}
+              variant={activeTool === 'coords' ? 'default' : 'ghost'}
               size="icon"
-              onClick={() => activateTool('angle')}
-              title="Mesure angle"
-              className={activeTool === 'angle' ? '' : 'text-white hover:text-white hover:bg-white/20'}
+              onClick={() => activateTool('coords')}
+              title="Coordonnées: cliquez un point"
+              className={`relative group ${activeTool === 'coords' ? 'bg-cyan-500 hover:bg-cyan-600' : 'text-white hover:text-white hover:bg-white/20'}`}
             >
               <Crosshair className="h-4 w-4" />
+              <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] px-2 py-0.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                XYZ
+              </span>
             </Button>
+            {activeTool && (
+              <>
+                <div className="w-px bg-white/20 mx-1" />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => activateTool(activeTool)}
+                  title="Effacer les mesures"
+                  className="text-red-400 hover:text-red-300 hover:bg-red-500/20"
+                >
+                  <span className="text-sm font-bold">×</span>
+                </Button>
+              </>
+            )}
           </div>
         </Card>
       </div>
@@ -863,15 +1047,25 @@ export function PotreeViewerComponent({
         </Card>
       </div>
 
-      {/* Active tool indicator */}
-      {activeTool && (
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20">
-          <Card className="p-2 bg-primary text-primary-foreground">
-            <Badge className="gap-2">
-              <Ruler className="h-3 w-3" />
-              Mode: {activeTool}
-              {measurementValue && <span className="ml-2">{measurementValue}</span>}
-            </Badge>
+      {/* Measurement result panel */}
+      {measureResult && (
+        <div className="absolute bottom-20 right-4 z-20 pointer-events-auto">
+          <Card className="bg-black/80 border-white/10 backdrop-blur text-white p-3 min-w-[200px]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase text-white/50 tracking-wider mb-1">{measureResult.label}</p>
+                <p className="text-xl font-bold font-mono text-green-400">{measureResult.value}</p>
+                {measureResult.points.length > 1 && (
+                  <p className="text-[10px] text-white/40 mt-1">{measureResult.points.length} point(s) placé(s)</p>
+                )}
+              </div>
+              <button
+                onClick={() => setMeasureResult(null)}
+                className="text-white/40 hover:text-white mt-0.5 text-lg leading-none"
+              >
+                ×
+              </button>
+            </div>
           </Card>
         </div>
       )}
